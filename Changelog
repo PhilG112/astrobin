@@ -1,3 +1,879 @@
+2020-05-26 Salvatore Iovene <salvatore@iovene.com>
+ * v1.72.4
+ * (general) Deal with missing file exception during data archive download
+
+2020-05-26 Salvatore Iovene <salvatore@iovene.com>
+ * v1.72.3
+ * (general) Support lowercase language code when getting flag
+
+2020-05-26 Salvatore Iovene <salvatore@iovene.com>
+ * v1.72.2
+ * Revert "Update dependency gevent to v20.5.1 (#1157)"
+
+2020-05-26 Salvatore Iovene <salvatore@iovene.com>
+ * v1.72.1
+ * (deps) Update dependency gevent to v20.5.1 (#1157)
+ * (infra) Fix logging of celery tasks
+
+2020-05-25 Salvatore Iovene <salvatore@iovene.com>
+ * v1.72.0
+ * (v1 api) Add filter for username
+
+2020-05-25 Salvatore Iovene <salvatore@iovene.com>
+ * v1.71.0
+ * (plate-solving) Make images inherit advanced settings from recent image (#1156)
+
+2020-05-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.13
+ * (api) Add i18n hash to app config API
+ * (api) Fix issue with i18n messages API not returning all apps
+ * (api) Cache i18n messages
+
+2020-05-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.12
+ * (api) Return en messages if querying for unsupported language
+
+2020-05-23 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.11
+ * (ui) Fix floating issue in thumbnails grid
+
+2020-05-22 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.10
+ * (ads) Link conversion events to Google Ads
+
+2020-05-22 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.9
+ * (general) Fix Google Ads tag
+
+2020-05-22 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.8
+ * (general) Migrate from very old _gaq to gtag for Google Analytics
+
+2020-05-22 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.7
+ * (i18n) Update pt translation of IOTD app (#1152)
+ * (i18n) Set default language from browser language (#1151)
+ * (i18n) Update German translation
+
+2020-05-22 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.6
+ * (general) Fix serving /favicon.ico (#1150)
+ * (i18n) Update languages
+ * (deps) Update dependency boto3 to v1.13.15 (#1144)
+ * (deps) Update dependency botocore to v1.16.15 (#1145)
+ * (deps) Update dependency ccy to v1.2.0 (#1147)
+ * (deps) Update     dependency codecov to v2.1.3 (#1149)
+ * (deps) Update dependency httplib2 to v0.18.1 (#1146)
+ * (deps) Update dependency six to v1.15.0 (#1148)
+
+2020-05-20 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.5
+ * (iotd) Add logging information for submission/vote/election actions
+ * (deps) Update dependency boto3 to v1.13.13 (#1137)
+ * (deps) Update dependency botocore to v1.16.13 (#1138)
+ * (deps) Update dependency codecov to v2.1.1 (#1142)
+ * (deps) Update dependency httplib2 to v0.18.0 (#1141)
+ * (deps) Update dependency lxml to v4.5.1 (#1136)
+
+2020-05-19 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.4
+ * (infra) Remove unneeded files
+ * (deps) Update dependency boto3 to v1.13.13
+ * (deps) Update dependency botocore to v1.16.13
+
+2020-05-19 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.3
+ * (search) Fix multiselect CSS and update to 2.1.4
+ * (deps) Update dependency botocore to v1.16.12 (#1131)
+ * (deps) Update dependency boto3 to v1.13.12 (#1130)
+ * (deps) Update dependency xdis to v4.6.0 (#1134)
+ * (deps) Update dependency uncompyle6 to v3.7.0 (#1133)
+ * (infra) Set PyUP to not do PRs
+ * (i18n) Build messages
+
+2020-05-19 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.2
+ * (i18n) Update languages (German reaches 100%)
+
+2020-05-18 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.1
+ * (emails) Use gallery sized thumb for new_image notification in all cases
+
+2020-05-18 Salvatore Iovene <salvatore@iovene.com>
+ * v1.70.0
+ * (images) Export solution images too, during bulk data export
+ * (deps) Update dependency boto3 to v1.13.11 (#1114)
+ * (deps) Update dependency botocore to v1.16.11 (#1115)
+ * (deps) Update dependency codecov to v2.1.0 (#1128)
+ * (deps) Update dependency lxml to v4 (#1104)
+ * (deps) Update dependency newrelic to v5 (#1106)
+ * (deps) Update dependency oauthlib to v3 (#1107)
+ * (deps) Update dependency pbr to v5 (#1108)
+ * (deps) Update dependency pem to v20 (#1109)
+ * (deps) Update dependency pyflakes to v2 (#1111)
+ * (deps) Update dependency pyOpenSSL to v19 (#1110)
+ * (deps) Update dependency pyquery to v1.4.1 (#1033)
+ * (deps) Update dependency pytz to v2020 (#1112)
+ * (deps) Update dependency qtip2 to v3 (#1113)
+ * (deps) Update dependency redis to v3 (#1116)
+ * (deps) Update dependency requests-oauthlib to v1 (#1117)
+ * (deps) Update dependency sendgrid to v6 (#1119)
+ * (deps) Update dependency uncompyle6 to v3 (#1122)
+ * (deps) Update dependency user-agents to v2 (#1123)
+ * (deps) Update dependency xdis to v4 (#1124)
+
+2020-05-17 Salvatore Iovene <salvatore@iovene.com>
+ * v1.69.4
+ * (images) Add missing migration regarding sharpened inverted thumbnails
+ * (i18n) Update languages (Spanish achieves 100%)
+ * (deps) Update dependency html5lib to v1 (#1103)
+ * (deps) Update dependency django-robots to v4 (#1088)
+ * (deps) Update dependency gprof2dot to v2019 (#1099)
+ * (deps) Update dependency geoip2 to v3 (#1097)
+ * (deps) Update dependency botocore to v1.16.10 (#1101)
+ * (deps) Update dependency boto3 to v1.13.10 (#1100)
+ * (deps) Update dependency elasticsearch to v7 (#1095)
+ * (deps) Update dependency django-easysettings to v2 (#1083)
+ * (deps) Update dependency gevent to v20 (#1098)
+ * (deps) Update dependency fanstatic to v1 (#1096)
+ * (deps) Update dependency django-safedelete to v0.5.5 (#1092)
+
+2020-05-14 Salvatore Iovene <salvatore@iovene.com>
+ * v1.69.3
+ * (images) Add settings and fields to handle {hd,regular}_sharpened_inverted thumbnails
+
+2020-05-14 Salvatore Iovene <salvatore@iovene.com>
+ * v1.69.2
+ * (search) Allow full search to pre-2020 Lite/Premium for continuity
+
+2020-05-14 Salvatore Iovene <salvatore@iovene.com>
+ * v1.69.1
+ * (notifications) Use 'gallery' thumbnail for new-image email
+ * (deps) Update dependency botocore to v1.16.9 (#1077)
+ * (deps) Update dependency django-avatar to v5 (#1076)
+ * (deps) Update dependency coverage to v5 (#1075)
+ * (deps) Update dependency click to v7 (#1073)
+ * (deps) Update dependency boto3 to v1.13.9 (#1069)
+ * (deps) Update dependency SQLAlchemy to v1.3.17 (#1081)
+ * (deps) Update dependency Unidecode to v1 (#1065)
+ * (deps) Update dependency ccy to v1 (#1070)
+ * (deps) Update dependency django-classy-tags to v1 (#1080)
+ * (deps) Update dependency certifi to v2020 (#1072)
+ * (deps) Update dependency jmespath to v0.10.0 (#1071)
+ * (deps) Update dependency asn1crypto to v1 (#1068)
+ * (deps) Update dependency Werkzeug to v1 (#1066)
+ * (deps) Update dependency Paste to v3 (#1063)
+ * (deps) Update dependency uncompyle6 to v2.16.0 (#1057)
+ * (deps) Update dependency botocore to v1.16.8 (#1051)
+
+2020-05-13 Salvatore Iovene <salvatore@iovene.com>
+ * v1.69.0
+ * (i18n) Update languages
+
+2020-05-13 Salvatore Iovene <salvatore@iovene.com>
+ * v1.68.0
+ * (api) Fix regression in Solution API: they should not be paginated (#1067)
+ * (deps) Update dependency IPy to v1 (#1061)
+ * (deps) Update dependency xdis to v3.9.1 (#1059)
+ * (deps) Update dependency urllib3 to v1.25.9 (#1058)
+ * (deps) Update dependency python-memcached to v1.59 (#1038)
+ * (deps) Update dependency python-dateutil to v2.8.1 (#1035)
+ * (deps) Update dependency pycparser to v2.20 (#1030)
+ * (deps) Update dependency ua-parser to v0.10.0 (#1056)
+
+2020-05-12 Salvatore Iovene <salvatore@iovene.com>
+ * v1.67.1
+ * (plate-solving) Fix saving Astrometry.net annotation
+ * (deps) Update dependency rjsmin to v1.1.0 (#1042)
+ * (deps) Update dependency tornado to v4.5.3 (#1055)
+ * (deps) Update dependency python-magic to v0.4.18 (#1037)
+ * (deps) Update dependency markdown2 to v2.3.9 (#1054)
+ * (deps) Update dependency pycodestyle to v2.6.0 (#1052)
+ * (deps) Update dependency sqlparse to v0.3.1 (#1053)
+ * (deps) Update dependency spark-parser to v1.8.9 (#1049)
+ * (deps) Update dependency boto3 to v1.13.7 (#1050)
+ * (deps) Update dependency six to v1.14.0 (#1048)
+
+2020-05-12 Salvatore Iovene <salvatore@iovene.com>
+ * v1.67.0
+ * (forums) Use regular text color for forum names and topics (#1047)
+ * (api) Use CamelCaseJSONParser for notifications (#1044)
+ * (deps) Update dependency sendgrid to v5.6.0 (#1043)
+ * (deps) Update dependency simplejson to v3.17.0 (#1045)
+ * (deps) Update dependency numpy to v1.16.6 (#1046)
+ * (deps) Update dependency requests-toolbelt to v0.9.1 (#1041)
+ * (deps) Update dependency requests to v2.23.0 (#1040)
+ * (deps) Update dependency python-http-client to v3.2.7 (#1036
+ * (deps) Update dependency pyflakes to v1.6.0 (#1031)
+ * (deps) Update dependency python-daemon to v2.2.4 (#1034)
+ * (deps) Update dependency pyparsing to v2.4.7 (#1032)
+ * (deps) Update dependency pycodestyle to v2.5.0 (#1028)
+ * (deps) Update dependency parso to v0.7.0 (#1024
+ * (deps) Update dependency odict to v1.7.0 (#1022
+ * (deps) Update dependency idna to v2.9 (#1013
+ * (deps) Update dependency ply to v3.11 (#1026)
+ * (deps) Update dependency pbr to v3.1.1 (#1025)
+ * (deps) Update dependency olefile to v0.46 (#1023)
+ * (deps) Update dependency oauthlib to v2.1.0 (#1021)
+ * (deps) Update dependency mwclient to v0.10.0 (#1019)
+ * (deps) Update dependency maxminddb to v1.5.4 (#1017)
+ * (deps) Update dependency log-colorizer to v1.8.6 (#1016
+ * (deps) Update dependency jedi to v0.17.0 (#1015)
+ * (deps) Update dependency ipaddress to v1.0.23 (#1014)
+ * (deps) Update dependency httplib2 to v0.17.3 (#1012)
+ * (deps) Update dependency enum34 to v1.1.10 (#1007)
+ * (deps) Update dependency botocore to v1.16.6 (#1006)
+ * (deps) Update dependency django-user-agents to v0.4.0 (#997
+ * (deps) Update dependency gunicorn to v19.10.0 (#1011)
+ * (deps) Update dependency gevent to v1.5.0 (#1010)
+ * (deps) Update dependency futures to v3.3.0 (#1009)
+ * (deps) Update dependency flickrapi to v2.4.0 (#1008)
+ * (deps) Update dependency boto3 to v1.13.6 (#1005)
+ * (deps) Update dependency elasticsearch to v5.5.3 (#1003)
+ * (deps) Update dependency docutils to v0.16 (#1001)
+ * (deps) Update dependency django-xmlrpc to v0.1.8 (#998)
+ * (deps) Update dependency django-tinymce to v2.9.0 (#996)
+ * (deps) Update dependency django-tastypie to v0.14.3 (#995
+ * (deps) Update dependency django-safedelete to v0.5.4 (#992)
+ * (deps) Update dependency django-celery-email to v2.0.2 (#968)
+
+2020-05-08 Salvatore Iovene <salvatore@iovene.com>
+ * v1.66.1
+ * (deps) Upgrade django-tagging, kombu, and vine
+
+2020-05-08 Salvatore Iovene <salvatore@iovene.com>
+ * v1.66.0
+ * (images) Drop solution when changing image in edit basic info (#927)
+ * (notifications) Redirect all notifications view to Angular app (#936)
+ * (premium) Include autorenew when reactivating previous subscription after free Ultimate expires (#960)
+ * (premium) Fix showing "inactive subscription" message on upload page (#982)
+ * (deps) Update dependency amqp to v2.5.2 (#944)
+ * (deps) Update dependency autopep8 to v1.5.2 (#945)
+ * (deps) Update dependency bbcode to v1.1.0 (#946)
+ * (deps) Update dependency BeautifulSoup to v3.2.2 (#932)
+ * (deps) Update dependency bleach to v3.1.4 (#932)
+ * (deps) Update dependency billiard to v3.6.3.0 (#948)
+ * (deps) Update dependency boto to v2.49.0 (#950)
+ * (deps) Update dependency boto3 to v1.13.5 (#951)
+ * (deps) Update dependency botocore to v1.16.4 (#952)
+ * (deps) Update dependency botocore to v1.16.5 (#983)
+ * (deps) Update dependency celery to v4.4.2 (#953)
+ * (deps) Update dependency cffi to v1.14.0 (#954)
+ * (deps) Update dependency confusable-homoglyphs to v3.2.0 (#955)
+ * (deps) Update dependency coverage to v4.5.4 (#956)
+ * (deps) Update dependency cryptography to v2.9.2 (#957)
+ * (deps) Update dependency cssselect to v1.1.0 (#958)
+ * (deps) Update dependency defusedxml to v0.6.0 (#961)
+ * (deps) Update dependency Django to v1.11.29 (#933)
+ * (deps) Update dependency django-annoying to v0.10.6 (#962)
+ * (deps) Update dependency django-bootstrap-breadcrumbs to v0.9.2 (#964)
+ * (deps) Update dependency django-bouncy to v0.2.8 (#965)
+ * (deps) Update dependency django-braces to v1.14.0 (#966)
+ * (deps) Update dependency django-classy-tags to v0.9.0 (#969)
+ * (deps) Update dependency django-contact-form-gv to v0.7.0 (#970)
+ * (deps) Update dependency django-contrib-comments to v1.9.2 (#971)
+ * (deps) Update dependency django-cookie-law to v2.0.3 (#972)
+ * (deps) Update dependency django-cors-middleware to v1.5.0 (#973)
+ * (deps) Update dependency django-debug-toolbar to v1.11 (#975)
+ * (deps) Update dependency django-el-pagination to v3.3.0 (#976)
+ * (deps) Update dependency django-extensions to v2.2.9 (#977)
+ * (deps) Update dependency django-followit to v0.4.1 (#978)
+ * (deps) Update dependency django-haystack to v2.8.1 (#979)
+ * (deps) Update dependency django-hitcount to v1.3.2 (#980)
+ * (deps) Update dependency django-maintenancemode to v0.11.3 (#984)
+ * (deps) Update dependency django-model-utils to v3.2.0 (#985)
+ * (deps) Update dependency django-modeltranslation to v0.15 (#986)
+ * (deps) Update dependency django-pipeline to v1.7.0 (#988)
+ * (deps) Update dependency django-registration to v2.5.2 (#990)
+ * (deps) Update dependency Jinja2 to v2.11.2 (#934)
+ * (deps) Update dependency Markdown to v2.6.11 (#935)
+ * (deps) Update dependency MarkupSafe to v1.1.1 (#937)
+ * (deps) Update dependency Pillow to v4.3.0 (#938)
+ * (deps) Update dependency PyYAML to v5.3.1 (#939)
+ * (deps) Update dependency SQLAlchemy to v1.3.16 (#941)
+ * (deps) Update dependency Unidecode to v0.04.21 (#942)
+ * (deps) Update dependency WebOb to v1.8.6 (#943)
+
+2020-05-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.65.5
+ * (images) Fix overflowing PI annotation on IE
+
+2020-05-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.65.4
+ * (images) Fix regular image display on small screens
+
+2020-05-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.65.3
+ * (paypal) Fix URL
+
+2020-05-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.65.2
+ * (paypal) Remove redirect for legacy IPN urls, forward to PayPal URLs directly
+
+2020-05-03 Salvatore Iovene <salvatore@iovene.com>
+ * v1.65.1
+ * (images) Only upscale images with PI plate-solution on image page
+
+2020-05-02 Salvatore Iovene <salvatore@iovene.com>
+ * v1.65.0
+ * (comments) Add missing semicolon (#923)
+ * (emails) Add title (if available) and thumbnail to 'new image' email (#925)
+
+2020-05-01 Salvatore Iovene <salvatore@iovene.com>
+ * v1.64.0
+ * (api/v2) Use django_filters backend and camelCase notification API (#922)
+
+2020-04-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.63.2
+ * (general) Do not escape toggleproperties on/off labels
+
+2020-04-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.63.1
+ * (iotd) Reduce the IOTD submission queue from 48 to 24 hours
+
+2020-04-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.63.0
+ * (images) Add checkbox to mark/not mark as final a new revision
+ * (iotd) Change submission queue to a rolling 48 hour window
+
+2020-04-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.11
+ * (premium) Fix task to revert back to Premium after Ultimate compensation trial expired
+
+2020-04-25 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.10
+ * (api) Fix i18n API to be able to get composite langs too (en-GB, pt-BR, etc)
+
+2020-04-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.9
+ * (flickr) Store Flickr token in session
+
+2020-04-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.8
+ * (rss) Remove media:thumbnail and use thumbnail_url as description
+
+2020-04-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.7
+ * (rss) Add image as enclosure
+
+2020-04-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.6
+ * (rss) Add media namespace
+
+2020-04-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.5
+ * (rss) Add link tags and media:thumbnail attribute
+
+2020-04-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.4
+ * (rss) Use image pk as guid instead of hash
+
+2020-04-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.3
+ * (rss) Fix more unicode issues and add correct guid
+
+2020-04-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.2
+ * (rss) Fix unicode issue and image URL
+
+2020-04-23 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.1
+ * (rss) Fix Top Picks RSS feed broken by typo
+
+2020-04-23 Salvatore Iovene <salvatore@iovene.com>
+ * v1.62.0
+ * (general) Fix stray period in locale_extras.py
+ * (iotd) Add RSS/Atom feeds for IOTD and Top Picks
+
+2020-04-21 Salvatore Iovene <salvatore@iovene.com>
+ * v1.61.2
+ * (api) Use correct CORS variable for host whitelist
+
+2020-04-20 Salvatore Iovene <salvatore@iovene.com>
+ * v1.61.1
+ * (image) Force 620px width on image page also for smaller images
+
+2020-04-20 Salvatore Iovene <salvatore@iovene.com>
+ * v1.61.0
+ * (api) Add API to support AstroBin's Angular app (#916)
+ * (plate-solving) Use HD size PI SVG if regular size is not available
+ * (general) Fix Sponsors & Partners links
+ * (sharing) Fix URL or og:image tag to use hash when available
+
+2020-04-15 Salvatore Iovene <salvatore@iovene.com>
+ * v1.60.3
+ * (images) Add timeout to request to purge file from CloudFlare
+
+2020-04-15 Salvatore Iovene <salvatore@iovene.com>
+ * v1.60.2
+ * (images) Do not invalidate thumbnails upon failure as it's too expensive
+
+2020-04-12 Salvatore Iovene <salvatore@iovene.com>
+ * v1.60.1
+ * (images) Fix image loading bug when placeholder is present (#908)
+ * (images) Remove some unused variables
+
+2020-04-11 Salvatore Iovene <salvatore@iovene.com>
+ * v1.60.0
+ * (images) Improve image resolution for high-dpi screens (#906)
+
+2020-04-11 Salvatore Iovene <salvatore@iovene.com>
+ * v1.59.2
+ * (image) Polish buttons on image upload wizard
+
+2020-04-09 Salvatore Iovene <salvatore@iovene.com>
+ * v1.59.1
+ * (search) Fix Image search model by allowing null values for solar system main subject
+ * (infra) Fix execution of test command on pristine build (#907)
+ * (infra) Fix docker-reset.sh script
+ * (docs) Fix testing instructions in README.md
+
+2020-04-08 Salvatore Iovene <salvatore@iovene.com>
+ * v1.59.0
+ * (docs) Specify direct login link in login instructions
+ * (images) Fix unnecessary redirect to secure URL of an image
+ * (rawdata) Discontinue raw data platform completely
+
+2020-04-08 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.11
+ * (api) Fix dehydration of solar system subjects
+
+2020-04-07 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.10
+ * (images) Deal with 'None' passed as revision label when fetching thumbnail
+
+2020-04-07 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.9
+ * (images) Fix incorrect permissions to view real size images (#903)
+ * (flickr) Update flickr library, add logs
+ * (flickr) slightly polish importer
+ * (search) Fix duplicated property name on index
+ * (infra) keep signed cookie session also on debug, for performance
+
+2020-04-07 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.8
+ * (images) Fix allowing editing tech detail after charfield model migration
+
+2020-04-07 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.7
+ * (iotd) Reduce submission queue to 1 day and exclude images tagged Gear or Other
+ * (image) Always show technical card if a solar system subject is tagged
+
+2020-04-06 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.6
+ * (plate-solving) Add comets to the list of image types that can be plate-solved
+ * (images) Fix empty "Contains:" label on solar system images
+
+2020-04-05 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.5
+ * (gallery) Use slower but effective query to exclude corrupted images to visitors
+
+2020-04-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.4
+ * (premium) Add task to reactivate previous subscription when free Premium expires
+ * (images) Add confirmation dialog when attempting to delete revisions
+
+2020-04-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.3
+ * (images) Allow superuser to edit/delete any revision
+ * (image) Don't convert interlaced images to sRGB
+
+2020-04-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.2
+ * (images) Fix broken click-thru in case the plate-solving annotation is missing
+
+2020-04-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.1
+ * (images) Do not apply color profiles to images in L or LA mode
+
+2020-04-03 Salvatore Iovene <salvatore@iovene.com>
+ * v1.58.0
+ * (images) Add support for embedded color profiles
+ * (images) Add optional sharpening of regular and hd thumbnails
+ * (images) Add default cropping settings after image upload
+ * (images) Have revisions copy cropping settings from mother image if same resolution
+
+2020-04-02 Salvatore Iovene <salvatore@iovene.com>
+ * v1.57.3
+ * (iotd) Allow judges to enter the IOTD/TP competition
+ * (i18n) Fix typo
+ * (messages) Add loading classes to send/reply buttons
+ * (plate-solving) Fix null pointer in case advanced settings does not exists
+
+2020-04-02 Salvatore Iovene <salvatore@iovene.com>
+ * v1.57.2
+ * (plate-solve) Fix resampling of advanced pixscale
+
+2020-04-02 Salvatore Iovene <salvatore@iovene.com>
+ * v1.57.1
+ * (plate-solving) Do not scale image resolution if raw sample is provided
+
+2020-04-02 Salvatore Iovene <salvatore@iovene.com>
+ * v1.57.0
+ * (donations) Fix PayPal URLs
+ * (plate-solving) Add support for `largeSize` to account for FITS larger than HD size
+ * (plate-solving) Fix revisions by using the correct width and height
+ * (plate-solving) Add support for the CGPN (catalogue of galactic planetary nebulae)
+
+2020-04-01 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.17
+ * (emails) Log every sent email
+
+2020-03-31 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.16
+ * (search) Add missing search box for visitors / free members
+
+2020-03-31 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.15
+ * (search) Fix search by telescope type, camera type, subject type
+ * (images) Hide empty or zero values from acquisition details card (#873)
+
+2020-03-30 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.14
+ * (plate-solving) Fix exception when location degrees/minutes or acquisition date are missing
+
+2020-03-30 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.13
+ * (images) Allow images from Ultimate users to be viewed in real resolution by anon/free members
+
+2020-03-30 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.12
+ * (images) Use explicit URLs for plate-solving settings forms
+
+2020-03-30 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.11
+ * (images) Don't display technical card items that are empty
+ * (flickr) Allow any Premium and Ultimate subscribers to import from Flickr
+ * (plate-solving) Fix advanced platesolving when coordinate seconds are "None"
+
+2020-03-29 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.10
+ * (premium) Fix typo
+
+2020-03-29 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.9
+ * (premium) Fix data loss compensation crash
+
+2020-03-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.8
+ * (premium) Remove image limits on Premium 2020 and fix ads issue
+
+2020-03-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.7
+ * (premium) Remove restriction from viewing technical card item
+
+2020-03-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.6
+ * (premium) Make Premium and Lite/Premium/Ultimate 2020 counter decrease on deletes
+ * (premium) Reset counter of former Lite/Premium users when signing up to new Lite/Premium
+ * (premium) Allow free users to see whole technical card
+
+2020-03-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.5
+ * (premium) Allow people who already bought Ultimate to get the data loss compensation
+
+2020-03-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.4
+ * (premium) Fix not showing ads on pages belonging to Ultimate users
+
+2020-03-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.3
+ * (plate-solving) Send correct image resolution (pixscale) to PixInsight
+
+2020-03-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.2
+ * (iotd) Fix reverted logic to allow non-free users into IOTD queue
+
+2020-03-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.1
+ * (infra) Remove statics collection from launch script because it's too slow
+
+2020-03-27 Salvatore Iovene <salvatore@iovene.com>
+ * v1.56.0
+ * (general) Introduce AstroBin Ultimate and other plan changes
+
+2020-03-25 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.29
+ * (general) Fix usage of context in username tag
+ * (images) Change "Deep sky object" to "Deep sky object or field"
+
+2020-03-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.28
+ * (forums) Do not delete spammer user, just safe-delete user profile
+ * (forums) Restrict moderation explicitly to forum moderators
+ * (api) Filter out corrupted and WIP images
+ * (general) Cache user names by language code too
+ * (dependencies) Update bleach and codecov
+
+2020-03-17 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.27
+ * (images) Remove "corrupted" class, as it incorrectly doesn't account for revisions
+
+2020-03-17 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.26
+ * (gallery) Cache image counts separately for owner vs visitor
+
+2020-03-16 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.25
+ * (gallery) Calculate correct count of images for owner vs visitor
+
+2020-03-15 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.24
+ * (users) Fix count of images on avatar
+
+2020-03-15 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.23
+ * (images) Mark deleted final revisions as non final, fix corrupted images query
+ * Revert "(gallery) Remove "Corrupted" menu entry
+
+2020-03-15 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.22
+ * (gallery) Remove "Corrupted" menu entry due to query issues
+
+2020-03-15 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.21
+ * (gallery) Due to popular demand, put corrupted images back in the gallery
+
+2020-03-14 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.20
+ * (gallery) Only exclude corrupted images when the original is corrupted, in public/wip galleries
+
+2020-03-14 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.19
+ * (images) Stop marking images as corrupted if a thumbnail cannot be generated. They've surely all been found.
+
+2020-03-14 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.18
+ * (images) Improve corrupted images query to exclude deleted revisions
+
+2020-03-14 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.17
+ * (performance) Improve speed of querying for corrupted images
+
+2020-03-14 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.16
+ * (gallery) Add "Corrupted" section for corrupted images
+ * (images) Hide corrupted revisions to visitors
+
+2020-03-09 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.15
+ * (infra) Pin setuptools at < 45 because newer versions won't support Python 2 (#822)
+ * (social) Move toggleproperties into repo for ease of use and fix IntegrityError issue (#821)
+ * (images) Skip corrupted images when navigating with the next/prev buttons (#817)
+ * (images) Remove user bookmark, I honestly don't know what that was doing there (#824)
+
+2020-03-07 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.14
+ * (flickr) Perform additional fixes pertaining to unwanted page redirects
+
+2020-03-07 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.13
+ * (infra) Strip environment variables
+ * (profile) Fix homepage redirect when clicking on Flickr image to import
+
+2020-03-06 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.12
+ * (search) Fix issue with search objects having UTF-8 characters not getting indexed
+
+2020-03-06 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.11
+ * (search) Print object pk during indexing for debugging purposes
+
+2020-03-06 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.10
+ * (search) Fix issue with failing to index images without a solution
+
+2020-03-05 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.9
+ * (general) Remove dead Google+ link from the footer
+ * (cleanup) Remove obsolete commented out code
+ * (profile) Exclude corrupted images from user tag
+
+2020-03-05 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.8
+ * (forum) Upgrade pybb to include fix for incorrectly using transactions
+
+2020-03-05 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.7
+ * (cleanup) Remove unused fil
+ * (images) Remove useless and confusing warning message when a large file is uploaded
+ * (search) Fix indexing of solution.objects_in_field
+ * (infra) Increase time of pinning to default database
+
+2020-03-05 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.6
+ * (infra) Increase image cache lifetime to 120 minutes
+
+2020-03-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.5
+ * (infra) Use django-multidb-router for read replica pinning
+
+2020-03-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.4
+ * (infra) Add support for read replica database
+
+2020-03-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.3
+ * (infra) Move debug_toolbar url inclusions to the top, fix panel 404
+ * (infra) Add MEMCACHED_HOST env setting and turn off memcached docker container in production
+
+2020-03-03 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.2
+ * (notifications) Fix typo
+ * (infra) Allow READONLY_MODE to be an environment setting (and improve its coverage)
+
+2020-02-27 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.1
+ * (infra) Reduce image cache to 30 minutes
+
+2020-02-27 Salvatore Iovene <salvatore@iovene.com>
+ * v1.55.0
+ * (infra) Use self-signed certificate for nginx: production SSL is always coming externally
+ * (infra) Add support for using AWS Elasticsearch
+ * (search) Limit search index of forum posts to 10000 characters
+ * (infra) Fix the custom 502 page
+ * (infra) Make postgres/elasticsearch only part of the build configuration
+ * (infra) Update image cache lifetime to 2h
+
+2020-02-23 Salvatore Iovene <salvatore@iovene.com>
+ * v1.54.6
+ * (images) Allow deleting original revision while on subsequent revision
+ * (images) Fix corner cases when replacing image/revision, relating to file w/h and cropping
+ * (images) Fix rendering of image cropping interface on revisions
+ * (infra) Expose debug port from docker container
+ * (plate-solving) Add script to regenerate annotations that were lost
+ * (plate-solving) Fix issue that caused annotation of wrong revision to be displayed
+ * (premium) Add script to upgrade Free/Lite users affected by data loss to Premium
+ * (premium) Fix display of expiration date in case of multiple subscriptions
+ * (profile) Fix hiding corrupted images beyond the first one
+
+2020-02-20 Salvatore Iovene <salvatore@iovene.com>
+ * v1.54.5
+ * (images) Improve success message upon deleting original image
+ * (images) Do not fallback to deleting whole image when wanting to delete original and there are no revision
+ * (images) Make sure there can never be two final revisions (incl. original)
+ * (images) Fix typo in placeholder image URL
+ * (images) Don't accidentally undelete images when marking them as corrupted
+ * (images) Use placehold.jp because it supports UTF-8 synbols
+ * (images) Increase thumbnail getting timeout and use hourglass instead of sad face
+ * (profile) Account for '0' revision when building corrupted pks list
+ * (profile) Fix showing non corrupted images to visitors
+ * (images) Add delete button to edit basic info page
+ * (images) Fix corruption redirects when the image is corrupted but not the address revision
+ * (images) Add delete buttons to revision list
+ * (images) Fix issues when revisions are corrupted
+ * (images) Fix marking a revision as corrupted
+
+2020-02-17 Salvatore Iovene <salvatore@iovene.com>
+ * v1.54.4
+ * (images) Fix issue when getting thumbnails of original revision without a thumb crop
+ * (images) Add image resolution readonly field on edit basic settings page
+ * (images) Always attempt to fetch corrupted images
+
+2020-02-16 Salvatore Iovene <salvatore@iovene.com>
+ * v1.54.3
+ * (profile) Fix missing link
+
+2020-02-16 Salvatore Iovene <salvatore@iovene.com>
+ * v1.54.2
+ * (infra) Fix spelling of CELERY_ALWAYS_EAGER setting (in debug)
+ * (images) Attempt thumbnail invalidation once when unable to get thumb right away
+ * (profile) Add warning message about corrupted images
+
+2020-02-15 Salvatore Iovene <salvatore@iovene.com>
+ * v1.54.1
+ * (images) Allow replacing image revision file field
+ * (infra) Purge imagecache directory faster
+
+2020-02-15 Salvatore Iovene <salvatore@iovene.com>
+ * v1.54.0
+ * (images) Add support for dealing with corrupted images
+
+2020-01-23 Salvatore Iovene <salvatore@iovene.com>
+ * v1.53.2
+ * (images) Restore visibility of description field on edit revision form
+ * (images) Fix broken breadcrumb on edit revision page
+
+2020-01-22 Salvatore Iovene <salvatore@iovene.com>
+ * v1.53.1
+ * (search) Hide comments belonging to deleted images
+
+2020-01-12 Salvatore Iovene <salvatore@iovene.com>
+ * v1.53.0
+ * (search) Add Drawing/Sketch to acquisition type search filter
+ * (images) Add PixelSkies to list of remote sources
+ * (gear) Migrate gear types to strings and add Rowe-Ackermann telescope
+ * (images) Add info about seeing and transparency scales (larger=better)
+
+2020-01-08 Salvatore Iovene <salvatore@iovene.com>
+ * v1.52.0
+ * (images) Add modal dialog about processing thumbnails
+
+ 2020-01-08 Salvatore Iovene <salvatore@iovene.com>
+ * v1.51.0
+ * (infra) Use Cloudflare API to purge cache upon thumbnail regeneration
+
+2020-01-07 Salvatore Iovene <salvatore@iovene.com>
+ * v1.50.1
+ * (images) Monkey patch getting image crop thumbnails to work with S3
+ * (images) Fix getting cropping thumbnail attribute for fresh uploads
+
+2020-01-06 Salvatore Iovene <salvatore@iovene.com>
+ * v1.50.0
+ * (images) Add feature to select custom gallery thumbnail
+ * (infra) Expose postgres port in docker (#761)
+ * (premium) Fix typo
+
+2020-01-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.49.1
+ * (subscriptions) Send notification 1 day after expiration
+ * (general) Fix usage of context in object_list, so that it retains the request object
+ * (deps) Upgrade cookie-law to 2.0.2
+
+2020-01-04 Salvatore Iovene <salvatore@iovene.com>
+ * v1.49.0
+ * (infra) Upgrade Django to 1.11.27
+
+2020-01-02 Salvatore Iovene <salvatore@iovene.com>
+ * v1.48.5
+ * (images) Fix RA hover label
+
+2020-01-02 Salvatore Iovene <salvatore@iovene.com>
+ * v1.48.4
+ * (images) Fix degree to Right Ascension conversion
+
+2020-01-01 Salvatore Iovene <salvatore@iovene.com>
+ * v1.48.3
+ * (images) Use hours/minutes/seconds and degrees/minutes/seconds for RA and dec
+
+2019-12-30 Salvatore Iovene <salvatore@iovene.com>
+ * v1.48.2
+ * (images) Fix ordered collection navigation context
+ * (collections) Handle empty queryset with no tags
+
+2019-12-28 Salvatore Iovene <salvatore@iovene.com>
+ * v1.48.1
+ * (profile) Fix missing imports
+
+2019-12-25 Salvatore Iovene <salvatore@iovene.com>
+ * v1.48.0
+ * (images) Add feature to upload public image without notifying subscribers
+
+2019-12-24 Salvatore Iovene <salvatore@iovene.com>
+ * v1.47.0
+ * (tech) Refactor forms to own package
+ * (infra) Remove unused and broken dependency django-threaded-multihost
+ * (images) Add support for key/value tags to sort collections
+
+2019-11-18 Salvatore Iovene <salvatore@iovene.com>
+ * v1.46.0
+ * (images) Extend gain field digits to 5 + 2 decimals
+ * (users) Allow avatars up to 15 MB and disable avatar caching
+
+2019-10-16 Salvatore Iovene <salvatore@iovene.com>
+ * v1.45.2
+ * (images) Fix mouse hover link to full
+
 2019-10-15 Salvatore Iovene <salvatore@iovene.com>
  * v1.45.1
  * (i18n) Update languages

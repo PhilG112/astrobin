@@ -1,13 +1,18 @@
+import logging
+
 import persistent_messages
 from django.conf import settings
 from django.core.mail import send_mail
 from django.template import TemplateDoesNotExist
 from django.template.loader import get_template, render_to_string
+from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext
 from django_bouncy.models import Bounce, Complaint
 from gadjo.requestprovider.signals import get_request
 from notification.backends import BaseBackend
 from notification.backends.email import EmailBackend as BaseEmailBackend
+
+log = logging.getLogger('apps')
 
 
 class PersistentMessagesBackend(BaseBackend):
@@ -47,7 +52,6 @@ class EmailBackend(BaseEmailBackend):
 
         return super(EmailBackend, self).can_send(user, notice_type)
 
-
     def deliver(self, recipient, sender, notice_type, extra_context):
         context = self.default_context()
         context.update({
@@ -63,28 +67,29 @@ class EmailBackend(BaseEmailBackend):
             "full.html"
         ), notice_type.label, context)
 
-        subject = "".join(render_to_string("notification/email_subject.txt", {
+        subject = "".join(render_to_string("notification/email_subject.txt", dict(context, **{
             "message": messages["short.txt"],
-        }, context).splitlines())
+        })).splitlines())
 
-        body = render_to_string("notification/email_body.txt", {
-            "message": messages["full.txt"],
-        }, context)
+        body = render_to_string("notification/email_body.txt", dict(context, **{
+            "message": messages["full.txt"]
+        }))
 
         try:
-            html_template = get_template(
-                "notification/%s/full.html" % notice_type.label)
+            get_template("notification/%s/full.html" % notice_type.label)
             message = messages["full.html"]
         except TemplateDoesNotExist:
             message = messages["full.txt"]
 
-        html_body = render_to_string("notification/email_body.html", {
-            "message": message
-        }, context)
+        html_body = render_to_string("notification/email_body.html", dict(context, **{
+            "message": mark_safe(unicode(message))
+        }))
 
         send_mail(
             subject,
             body,
             settings.DEFAULT_FROM_EMAIL,
-            [recipient.email],
+            [settings.EMAIL_DEV_RECIPIENT if settings.SEND_EMAILS == 'dev' else recipient.email],
             html_message=html_body)
+
+        log.debug("Email sent to %s: %s" % (recipient.email, subject))

@@ -17,7 +17,7 @@ TEMPLATES = [
                 'django.template.context_processors.static',
                 'django.template.context_processors.tz',
                 'django.contrib.messages.context_processors.messages',
-                'django.core.context_processors.request',
+                'django.template.context_processors.request',
 
                 'pybb.context_processors.processor',
 
@@ -37,9 +37,3 @@ TEMPLATES = [
         },
     },
 ]
-
-if DEBUG:
-    TEMPLATES[0]['OPTIONS']['loaders'] = [
-        'django.template.loaders.filesystem.Loader',
-        'django.template.loaders.app_directories.Loader',
-    ]

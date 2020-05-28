@@ -1,7 +1,6 @@
 ASTROBIN_APPS = [
     'common',
     'nested_comments',
-    'rawdata',
     'astrobin_apps_images',
     'astrobin_apps_platesolving',
     'astrobin_apps_users',
@@ -10,7 +9,6 @@ ASTROBIN_APPS = [
     'astrobin_apps_notifications',
     'astrobin_apps_groups',
     'astrobin_apps_iotd',
-    'astrobin_apps_landing',
     'toggleproperties'
 ]
 
@@ -69,6 +67,9 @@ INSTALLED_APPS = [
     'template_timings_panel',
     'cookielaw',
     'corsheaders',
+    'image_cropping',
+    'django_extensions',
+    'progressbarupload',
 
     'astrobin.apps.AstroBinAppConfig',
 ] + ASTROBIN_APPS

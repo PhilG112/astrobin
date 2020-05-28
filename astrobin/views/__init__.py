@@ -1,40 +1,73 @@
 import csv
+import logging
+import operator
+import os
 import urllib2
 
 import flickrapi
+import simplejson
 from actstream.models import Action
+from django.conf import settings
 from django.contrib import auth
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
+from django.core.cache import cache
 from django.core.exceptions import MultipleObjectsReturned
-from django.core.paginator import Paginator
+from django.core.files.images import get_image_dimensions
+from django.core.paginator import Paginator, InvalidPage
 from django.core.urlresolvers import reverse
+from django.db.models import Q
 from django.forms.models import inlineformset_factory
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.http import HttpResponseForbidden
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
-from django.shortcuts import render_to_response
+from django.shortcuts import render
 from django.template import loader, RequestContext
+from django.template.defaultfilters import filesizeformat
 from django.template.loader import render_to_string
 from django.utils.datastructures import MultiValueDictKeyError
-from django.utils.functional import curry
+from django.utils.translation import ngettext as _n
 from django.utils.translation import ugettext as _
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 from el_pagination.decorators import page_template
+from flickrapi.auth import FlickrAccessToken
 from haystack.exceptions import SearchFieldError
 from haystack.query import SearchQuerySet
+from reviews.models import Review
 from reviews.views import ReviewAddForm
 from silk.profiling.profiler import silk_profile
 
-from astrobin.forms import *
-from astrobin.gear import *
-from astrobin.models import *
-from astrobin.shortcuts import *
-from astrobin.utils import *
-from astrobin_apps_platesolving.forms import PlateSolvingSettingsForm
-from astrobin_apps_platesolving.models import PlateSolvingSettings
+from astrobin.context_processors import notices_count, user_language, user_scores, common_variables
+from astrobin.enums import SubjectType
+from astrobin.forms import ImageUploadForm, ImageLicenseForm, PrivateMessageForm, UserProfileEditBasicForm, \
+    DeepSky_AcquisitionBasicForm, SolarSystem_AcquisitionForm, UserProfileEditCommercialForm, \
+    UserProfileEditRetailerForm, DefaultImageLicenseForm, TelescopeEditNewForm, MountEditNewForm, CameraEditNewForm, \
+    FocalReducerEditNewForm, SoftwareEditNewForm, FilterEditNewForm, AccessoryEditNewForm, TelescopeEditForm, \
+    MountEditForm, CameraEditForm, FocalReducerEditForm, SoftwareEditForm, FilterEditForm, AccessoryEditForm, \
+    GearUserInfoForm, LocationEditForm, ImageEditWatermarkForm, DeepSky_AcquisitionForm, ClaimCommercialGearForm, \
+    MergeCommercialGearForm, ClaimRetailedGearForm, MergeRetailedGearForm, UserProfileEditPreferencesForm, \
+    RetailedGearForm, ImageRevisionUploadForm, UserProfileEditGearForm, CommercialGearForm
+from astrobin.gear import is_gear_complete, get_correct_gear
+from astrobin.models import Image, UserProfile, CommercialGear, Gear, Location, ImageRevision, DeepSky_Acquisition, \
+    SolarSystem_Acquisition, RetailedGear, GearUserInfo, Telescope, Mount, Camera, FocalReducer, Software, Filter, \
+    Accessory, GearHardMergeRedirect, GlobalStat, App, GearMakeAutoRename, Acquisition
+from astrobin.shortcuts import ajax_response, ajax_success, ajax_fail
+from astrobin.utils import user_is_producer, user_is_retailer, to_user_timezone, base26_encode, base26_decode
+from astrobin_apps_notifications.utils import push_notification
+from astrobin_apps_platesolving.forms import PlateSolvingSettingsForm, PlateSolvingAdvancedSettingsForm
+from astrobin_apps_platesolving.models import PlateSolvingSettings, Solution, PlateSolvingAdvancedSettings
+from astrobin_apps_premium.templatetags.astrobin_apps_premium_tags import can_restore_from_trash, \
+    can_perform_advanced_platesolving
+from astrobin_apps_premium.utils import premium_get_max_allowed_image_size, premium_get_max_allowed_revisions, \
+    premium_user_has_valid_subscription
+from astrobin_apps_users.services import UserService
+from toggleproperties.models import ToggleProperty
+
+log = logging.getLogger('apps')
 
 
 def get_image_or_404(queryset, id):
@@ -96,11 +129,15 @@ def object_list(request, queryset, paginate_by=None, page=None,
             A list of the page numbers (1-indexed).
     """
     if extra_context is None: extra_context = {}
+
     queryset = queryset._clone()
+
     if paginate_by:
         paginator = Paginator(queryset, paginate_by, allow_empty_first_page=allow_empty)
+
         if not page:
             page = request.GET.get('page', 1)
+
         try:
             page_number = int(page)
         except ValueError:
@@ -113,6 +150,7 @@ def object_list(request, queryset, paginate_by=None, page=None,
             page_obj = paginator.page(page_number)
         except InvalidPage:
             raise Http404
+
         c = RequestContext(request, {
             '%s_list' % template_object_name: page_obj.object_list,
             'paginator': paginator,
@@ -140,18 +178,29 @@ def object_list(request, queryset, paginate_by=None, page=None,
             'page_obj': None,
             'is_paginated': False,
         }, context_processors)
+
         if not allow_empty and len(queryset) == 0:
             raise Http404
+
     for key, value in extra_context.items():
         if callable(value):
             c[key] = value()
         else:
             c[key] = value
+
     if not template_name:
         model = queryset.model
         template_name = "%s/%s_list.html" % (model._meta.app_label, model._meta.object_name.lower())
+
     t = template_loader.get_template(template_name)
-    return HttpResponse(t.render(c), content_type=mimetype)
+
+    context = c.flatten()
+    context.update(notices_count(request))
+    context.update(user_language(request))
+    context.update(user_scores(request))
+    context.update(common_variables(request))
+
+    return HttpResponse(t.render(context, request))
 
 
 def monthdelta(date, delta):
@@ -219,6 +268,49 @@ def jsonDump(all):
         return []
 
 
+def upload_error(request, image=None):
+    messages.error(request, _("Invalid image or no image provided. Allowed formats are JPG, PNG and GIF."))
+
+    if image is not None:
+        return HttpResponseRedirect(image.get_absolute_url())
+
+    return HttpResponseRedirect('/upload/')
+
+
+def upload_size_error(request, max_size, image=None):
+    subscriptions_url = reverse('subscription_list')
+    open_link = "<a href=\"%s\">" % subscriptions_url
+    close_link = "</a>"
+    msg = "Sorry, but this image is too large. Under your current subscription plan, the maximum allowed image size is %(max_size)s. %(open_link)sWould you like to upgrade?%(close_link)s"
+
+    messages.error(request, _(msg) % {
+        "max_size": filesizeformat(max_size),
+        "open_link": open_link,
+        "close_link": close_link
+    })
+
+    if image is not None:
+        return HttpResponseRedirect(image.get_absolute_url())
+
+    return HttpResponseRedirect('/upload/')
+
+
+def upload_max_revisions_error(request, max_revisions, image):
+    subscriptions_url = reverse('subscription_list')
+    open_link = "<a href=\"%s\">" % subscriptions_url
+    close_link = "</a>"
+    msg_singular = "Sorry, but you have reached the maximum amount of allowed image revisions. Under your current subscription, the limit is %(max_revisions)s revision per image. %(open_link)sWould you like to upgrade?%(close_link)s"
+    msg_plural = "Sorry, but you have reached the maximum amount of allowed image revisions. Under your current subscription, the limit is %(max_revisions)s revisions per image. %(open_link)sWould you like to upgrade?%(close_link)s"
+
+    messages.error(request, _n(msg_singular, msg_plural, max_revisions) % {
+        "max_revisions": max_revisions,
+        "open_link": open_link,
+        "close_link": close_link
+    })
+
+    return HttpResponseRedirect(image.get_absolute_url())
+
+
 # VIEWS
 
 @page_template('index/stream_page.html', key='stream_page')
@@ -229,9 +321,7 @@ def index(request, template='index/root.html', extra_context=None):
 
     if not request.user.is_authenticated():
         from django.shortcuts import redirect
-        return redirect(reverse("landing:main"))
-
-    from django.core.cache import cache
+        return redirect("https://welcome.astrobin.com/")
 
     image_ct = ContentType.objects.get_for_model(Image)
     image_rev_ct = ContentType.objects.get_for_model(ImageRevision)
@@ -376,23 +466,11 @@ def index(request, template='index/root.html', extra_context=None):
     if extra_context is not None:
         response_dict.update(extra_context)
 
-    return render_to_response(
-        template, response_dict,
-        context_instance=RequestContext(request))
+    return render(request, template, response_dict)
 
 
 @login_required
 def image_upload(request):
-    from rawdata.utils import (
-        rawdata_user_has_subscription,
-        rawdata_user_has_valid_subscription,
-        rawdata_user_has_invalid_subscription,
-        rawdata_user_is_over_limit,
-        rawdata_user_used_percent,
-        rawdata_user_progress_class,
-        rawdata_supported_raw_formats,
-    )
-
     from astrobin_apps_premium.utils import (
         premium_used_percent,
         premium_progress_class,
@@ -400,38 +478,23 @@ def image_upload(request):
         premium_user_has_invalid_subscription,
     )
 
-    rawdata_has_sub = rawdata_user_has_subscription(request.user)
-    rawdata_has_act_sub = rawdata_has_sub and rawdata_user_has_valid_subscription(request.user)
-    rawdata_has_inact_sub = rawdata_has_sub and rawdata_user_has_invalid_subscription(request.user)
-    rawdata_is_over_limit = rawdata_has_act_sub and rawdata_user_is_over_limit(request.user)
-
     tmpl_premium_used_percent = premium_used_percent(request.user)
     tmpl_premium_progress_class = premium_progress_class(tmpl_premium_used_percent)
-    tmpl_premium_has_inact_sub = premium_user_has_subscription(request.user) and premium_user_has_invalid_subscription(
-        request.user)
+    tmpl_premium_has_inactive_subscription = \
+        premium_user_has_subscription(request.user) and \
+        premium_user_has_invalid_subscription(request.user) and \
+        not premium_user_has_valid_subscription(request.user)
 
     response_dict = {
-        'rawdata_has_sub': rawdata_has_sub,
-        'rawdata_has_act_sub': rawdata_has_act_sub,
-        'rawdata_has_inact_sub': rawdata_has_inact_sub,
-        'rawdata_is_over_limit': rawdata_is_over_limit,
-
-        'rawdata_used_percent': rawdata_user_used_percent(request.user) if rawdata_has_act_sub else 100,
-        'rawdata_progress_class': rawdata_user_progress_class(request.user) if rawdata_has_act_sub else '',
-        'rawdata_supported_raw_formats': rawdata_supported_raw_formats(),
-
         'premium_used_percent': tmpl_premium_used_percent,
         'premium_progress_class': tmpl_premium_progress_class,
-        'premium_has_inact_sub': tmpl_premium_has_inact_sub,
+        'premium_has_inactive_subscription': tmpl_premium_has_inactive_subscription,
     }
 
     if tmpl_premium_used_percent < 100:
         response_dict['upload_form'] = ImageUploadForm()
 
-    return render_to_response(
-        "upload.html",
-        response_dict,
-        context_instance=RequestContext(request))
+    return render(request, "upload.html", response_dict)
 
 
 @login_required
@@ -439,50 +502,48 @@ def image_upload(request):
 def image_upload_process(request):
     """Process the form"""
 
-    def upload_error():
-        messages.error(request, _("Invalid image or no image provided. Allowed formats are JPG, PNG and GIF."))
-        return HttpResponseRedirect('/upload/')
-
     from astrobin_apps_premium.utils import premium_used_percent
 
     used_percent = premium_used_percent(request.user)
     if used_percent >= 100:
-        messages.error(request, _("You have reached your image count limit. Please upgrade!"));
+        messages.error(request, _("You have reached your image count limit. Please upgrade!"))
         return HttpResponseRedirect('/upload/')
 
     if settings.READONLY_MODE:
         messages.error(request, _(
-            "AstroBin is currently in read-only mode, because of server maintenance. Please try again soon!"));
+            "AstroBin is currently in read-only mode, because of server maintenance. Please try again soon!"))
         return HttpResponseRedirect('/upload/')
 
     if 'image_file' not in request.FILES:
-        return upload_error()
+        return upload_error(request)
 
     form = ImageUploadForm(request.POST, request.FILES)
 
     if not form.is_valid():
-        return upload_error()
+        return upload_error(request)
 
     image_file = request.FILES["image_file"]
     ext = os.path.splitext(image_file.name)[1].lower()
 
     if ext not in settings.ALLOWED_IMAGE_EXTENSIONS:
-        return upload_error()
+        return upload_error(request)
+
+    max_size = premium_get_max_allowed_image_size(request.user)
+    if image_file.size > max_size:
+        return upload_size_error(request, max_size)
 
     if image_file.size < 1e+7:
         try:
             from PIL import Image as PILImage
             trial_image = PILImage.open(image_file)
             trial_image.verify()
-            image_file.file.seek(0) # Because we opened it with PIL
+            image_file.file.seek(0)  # Because we opened it with PIL
 
             if ext == '.png' and trial_image.mode == 'I':
                 messages.warning(request, _(
                     "You uploaded an Indexed PNG file. AstroBin will need to lower the color count to 256 in order to work with it."))
         except:
-            return upload_error()
-    else:
-        messages.warning(request, _("You uploaded a pretty large file. For that reason, AstroBin could not verify that it's a valid image."))
+            return upload_error(request)
 
     profile = request.user.userprofile
     image = form.save(commit=False)
@@ -497,7 +558,7 @@ def image_upload_process(request):
     from astrobin.tasks import retrieve_primary_thumbnails
     retrieve_primary_thumbnails.delay(image.pk, {'revision_label': '0'})
 
-    return HttpResponseRedirect(reverse('image_edit_watermark', kwargs={'id': image.get_id()}))
+    return HttpResponseRedirect(reverse('image_edit_thumbnails', kwargs={'id': image.get_id()}))
 
 
 @login_required
@@ -520,12 +581,10 @@ def image_edit_watermark(request, id):
 
     form = ImageEditWatermarkForm(instance=image)
 
-    return render_to_response('image/edit/watermark.html',
-                              {
-                                  'image': image,
-                                  'form': form,
-                              },
-                              context_instance=RequestContext(request))
+    return render(request, 'image/edit/watermark.html', {
+        'image': image,
+        'form': form,
+    })
 
 
 @login_required
@@ -572,8 +631,7 @@ def image_edit_acquisition(request, id):
                                                form=DeepSky_AcquisitionForm)
             profile = image.user.userprofile
             filter_queryset = profile.filters.all()
-            DSAFormSet.form = staticmethod(curry(DeepSky_AcquisitionForm, queryset=filter_queryset))
-            deep_sky_acquisition_formset = DSAFormSet(instance=image)
+            deep_sky_acquisition_formset = DSAFormSet(instance=image, form_kwargs={'queryset': filter_queryset})
         else:
             dsa = dsa_qs[0] if dsa_qs else DeepSky_Acquisition({image: image, advanced: False})
             deep_sky_acquisition_basic_form = DeepSky_AcquisitionBasicForm(instance=dsa)
@@ -588,9 +646,7 @@ def image_edit_acquisition(request, id):
         'solar_system_acquisition': solar_system_acquisition,
     }
 
-    return render_to_response('image/edit/acquisition.html',
-                              response_dict,
-                              context_instance=RequestContext(request))
+    return render(request, 'image/edit/acquisition.html', response_dict)
 
 
 @login_required
@@ -607,9 +663,7 @@ def image_edit_acquisition_reset(request, id):
         'image': image,
         'deep_sky_acquisition_basic_form': DeepSky_AcquisitionBasicForm(),
     }
-    return render_to_response('image/edit/acquisition.html',
-                              response_dict,
-                              context_instance=RequestContext(request))
+    return render(request, 'image/edit/acquisition.html', response_dict)
 
 
 @login_required
@@ -619,7 +673,7 @@ def image_edit_make_final(request, id):
     if request.user != image.user and not request.user.is_superuser:
         return HttpResponseForbidden()
 
-    revisions = ImageRevision.objects.filter(image=image)
+    revisions = ImageRevision.all_objects.filter(image=image)
     for r in revisions:
         r.is_final = False
         r.save(keep_deleted=True)
@@ -636,7 +690,7 @@ def image_edit_revision_make_final(request, id):
     if request.user != r.image.user and not request.user.is_superuser:
         return HttpResponseForbidden()
 
-    other = ImageRevision.objects.filter(image=r.image)
+    other = ImageRevision.all_objects.filter(image=r.image)
     for i in other:
         i.is_final = False
         i.save(keep_deleted=True)
@@ -658,11 +712,10 @@ def image_edit_license(request, id):
         return HttpResponseForbidden()
 
     form = ImageLicenseForm(instance=image)
-    return render_to_response(
-        'image/edit/license.html',
-        {'form': form,
-         'image': image},
-        context_instance=RequestContext(request))
+    return render(request, 'image/edit/license.html', {
+        'form': form,
+        'image': image
+    })
 
 
 @login_required
@@ -695,13 +748,12 @@ def image_edit_platesolving_settings(request, id, revision_label):
 
     if request.method == 'GET':
         form = PlateSolvingSettingsForm(instance=settings)
-        return render_to_response('image/edit/platesolving_settings.html',
-                                  {
-                                      'form': form,
-                                      'image': image,
-                                      'return_url': return_url,
-                                  },
-                                  context_instance=RequestContext(request))
+        return render(request, 'image/edit/platesolving_settings.html', {
+            'form': form,
+            'image': image,
+            'revision_label': revision_label,
+            'return_url': return_url,
+        })
 
     if request.method == 'POST':
         form = PlateSolvingSettingsForm(instance=settings, data=request.POST)
@@ -709,22 +761,130 @@ def image_edit_platesolving_settings(request, id, revision_label):
             messages.error(
                 request,
                 _("There was one or more errors processing the form. You may need to scroll down to see them."))
-            return render_to_response(
-                'image/edit/platesolving_settings.html',
-                {
-                    'form': form,
-                    'image': image,
-                    'return_url': return_url,
-                },
-                context_instance=RequestContext(request))
+            return render(request, 'image/edit/platesolving_settings.html', {
+                'form': form,
+                'image': image,
+                'revision_label': revision_label,
+                'return_url': return_url,
+            })
 
         form.save()
         solution.clear()
 
         messages.success(
             request,
-            _("Form saved. A new plate-solving process will start when you visit your image again."))
-        return HttpResponseRedirect(url)
+            _("Form saved. A new plate-solving process will start now."))
+        return HttpResponseRedirect(return_url)
+
+
+@login_required
+def image_edit_platesolving_advanced_settings(request, id, revision_label):
+    image = get_image_or_404(Image.objects_including_wip, id)
+    if request.user != image.user and not request.user.is_superuser and not can_perform_advanced_platesolving(
+            image.user):
+        return HttpResponseForbidden()
+
+    if revision_label in (None, 'None', '0'):
+        if image.revisions.count() > 0:
+            return_url = reverse('image_detail', args=(image.get_id(), '0',))
+        else:
+            return_url = reverse('image_detail', args=(image.get_id(),))
+        solution, created = Solution.objects.get_or_create(
+            content_type=ContentType.objects.get_for_model(Image),
+            object_id=image.pk)
+    else:
+        return_url = reverse('image_detail', args=(image.get_id(), revision_label,))
+        revision = ImageRevision.objects.get(image=image, label=revision_label)
+        solution, created = Solution.objects.get_or_create(
+            content_type=ContentType.objects.get_for_model(ImageRevision),
+            object_id=revision.pk)
+
+    advanced_settings = solution.advanced_settings
+    if advanced_settings is None:
+        solution.advanced_settings = PlateSolvingAdvancedSettings.objects.create()
+        solution.save()
+
+    if request.method == 'GET':
+        form = PlateSolvingAdvancedSettingsForm(instance=advanced_settings)
+        return render(request, 'image/edit/platesolving_advanced_settings.html', {
+            'form': form,
+            'image': image,
+            'revision_label': revision_label,
+            'return_url': return_url,
+        })
+
+    if request.method == 'POST':
+        form = PlateSolvingAdvancedSettingsForm(request.POST or None, request.FILES or None, instance=advanced_settings)
+        if not form.is_valid():
+            messages.error(
+                request,
+                _("There was one or more errors processing the form. You may need to scroll down to see them."))
+            return render(request, 'image/edit/platesolving_advanced_settings.html', {
+                'form': form,
+                'image': image,
+                'revision_label': revision_label,
+                'return_url': return_url,
+            })
+
+        form.save()
+        solution.clear_advanced()
+
+        messages.success(
+            request,
+            _("Form saved. A new advanced plate-solving process will start now."))
+        return HttpResponseRedirect(return_url)
+
+
+@login_required
+def image_restart_platesolving(request, id, revision_label):
+    image = get_image_or_404(Image.objects_including_wip, id)
+    if request.user != image.user and not request.user.is_superuser:
+        return HttpResponseForbidden()
+
+    if revision_label in (None, 'None', '0'):
+        if image.revisions.count() > 0:
+            return_url = reverse('image_detail', args=(image.get_id(), '0',))
+        else:
+            return_url = reverse('image_detail', args=(image.get_id(),))
+        solution, created = Solution.objects.get_or_create(
+            content_type=ContentType.objects.get_for_model(Image),
+            object_id=image.pk)
+    else:
+        return_url = reverse('image_detail', args=(image.get_id(), revision_label,))
+        revision = ImageRevision.objects.get(image=image, label=revision_label)
+        solution, created = Solution.objects.get_or_create(
+            content_type=ContentType.objects.get_for_model(ImageRevision),
+            object_id=revision.pk)
+
+    solution.delete()
+
+    return HttpResponseRedirect(return_url)
+
+
+@login_required
+def image_restart_advanced_platesolving(request, id, revision_label):
+    image = get_image_or_404(Image.objects_including_wip, id)
+    if request.user != image.user and not request.user.is_superuser:
+        return HttpResponseForbidden()
+
+    if revision_label in (None, 'None', '0'):
+        if image.revisions.count() > 0:
+            return_url = reverse('image_detail', args=(image.get_id(), '0',))
+        else:
+            return_url = reverse('image_detail', args=(image.get_id(),))
+        solution, created = Solution.objects.get_or_create(
+            content_type=ContentType.objects.get_for_model(Image),
+            object_id=image.pk)
+    else:
+        return_url = reverse('image_detail', args=(image.get_id(), revision_label,))
+        revision = ImageRevision.objects.get(image=image, label=revision_label)
+        solution, created = Solution.objects.get_or_create(
+            content_type=ContentType.objects.get_for_model(ImageRevision),
+            object_id=revision.pk)
+
+    solution.clear_advanced()
+
+    return HttpResponseRedirect(return_url)
 
 
 @login_required
@@ -743,13 +903,10 @@ def image_edit_save_watermark(request):
     if not form.is_valid():
         messages.error(request,
                        _("There was one or more errors processing the form. You may need to scroll down to see them."))
-        return render_to_response(
-            'image/edit/watermark.html',
-            {
-                'image': image,
-                'form': form,
-            },
-            context_instance=RequestContext(request))
+        return render(request, 'image/edit/watermark.html', {
+            'image': image,
+            'form': form,
+        })
 
     form.save()
 
@@ -816,21 +973,16 @@ def image_edit_save_acquisition(request):
                                                        form=DeepSky_AcquisitionForm)
                     profile = image.user.userprofile
                     filter_queryset = profile.filters.all()
-                    DSAFormSet.form = staticmethod(curry(DeepSky_AcquisitionForm, queryset=filter_queryset))
-                    deep_sky_acquisition_formset = DSAFormSet(instance=image)
+                    deep_sky_acquisition_formset = DSAFormSet(instance=image, form_kwargs={'queryset': filter_queryset})
                     response_dict['deep_sky_acquisitions'] = deep_sky_acquisition_formset
                     response_dict['next_acquisition_session'] = deep_sky_acquisition_formset.total_form_count() - 1
                     if not dsa_qs:
                         messages.info(request, _("Fill in one session, before adding more."))
-                    return render_to_response('image/edit/acquisition.html',
-                                              response_dict,
-                                              context_instance=RequestContext(request))
+                    return render(request, 'image/edit/acquisition.html', response_dict)
             else:
                 messages.error(request, _(
                     "There was one or more errors processing the form. You may need to scroll down to see them."))
-                return render_to_response('image/edit/acquisition.html',
-                                          response_dict,
-                                          context_instance=RequestContext(request))
+                return render(request, 'image/edit/acquisition.html', response_dict)
         else:
             DeepSky_Acquisition.objects.filter(image=image).delete()
             dsa = DeepSky_Acquisition()
@@ -842,9 +994,7 @@ def image_edit_save_acquisition(request):
                 messages.error(request, _(
                     "There was one or more errors processing the form. You may need to scroll down to see them."))
                 response_dict['deep_sky_acquisition_basic_form'] = deep_sky_acquisition_basic_form
-                return render_to_response('image/edit/acquisition.html',
-                                          response_dict,
-                                          context_instance=RequestContext(request))
+                return render(request, 'image/edit/acquisition.html', response_dict)
 
     elif edit_type == 'solar_system':
         ssa = SolarSystem_Acquisition(image=image)
@@ -854,9 +1004,7 @@ def image_edit_save_acquisition(request):
             response_dict['ssa_form'] = form
             messages.error(request, _(
                 "There was one or more errors processing the form. You may need to scroll down to see them."))
-            return render_to_response('image/edit/acquisition.html',
-                                      response_dict,
-                                      context_instance=RequestContext(request))
+            return render(request, 'image/edit/acquisition.html', response_dict)
         form.save()
 
     messages.success(request, _("Form saved. Thank you!"))
@@ -879,11 +1027,10 @@ def image_edit_save_license(request):
     if not form.is_valid():
         messages.error(request,
                        _("There was one or more errors processing the form. You may need to scroll down to see them."))
-        return render_to_response(
-            'image/edit/license.html',
-            {'form': form,
-             'image': image},
-            context_instance=RequestContext(request))
+        return render(request, 'image/edit/license.html', {
+            'form': form,
+            'image': image
+        })
 
     form.save()
 
@@ -943,13 +1090,30 @@ def user_page(request, username):
     active = request.GET.get('active')
     menu = []
 
-    qs = Image.objects.filter(user=user)
+    qs = UserService(user).get_public_images()
+    wip_qs = UserService(user).get_wip_images()
+    corrupted_qs = UserService(user).get_corrupted_images()
+
+    if request.user != user:
+        qs = qs.exclude(pk__in=[x.pk for x in corrupted_qs])
 
     if 'staging' in request.GET:
         if request.user != user and not request.user.is_superuser:
             return HttpResponseForbidden()
-        qs = Image.wip.filter(user=user)
+        qs = wip_qs
         section = 'staging'
+        subsection = None
+    if 'trash' in request.GET:
+        if request.user != user or not can_restore_from_trash(request.user) and not request.user.is_superuser:
+            return HttpResponseForbidden()
+        qs = Image.deleted_objects.filter(user=user)
+        section = 'trash'
+        subsection = None
+    elif 'corrupted' in request.GET:
+        if request.user != user and not request.user.is_superuser:
+            return HttpResponseForbidden()
+        qs = corrupted_qs
+        section = 'corrupted'
         subsection = None
     else:
         #########
@@ -991,8 +1155,15 @@ def user_page(request, username):
 
                 if active == '0':
                     qs = qs.filter(
-                        (Q(subject_type__lt=500) | Q(subject_type=600)) &
-                        (Q(acquisition=None) | Q(acquisition__date=None))).distinct()
+                        Q(subject_type__in=(
+                            SubjectType.DEEP_SKY,
+                            SubjectType.SOLAR_SYSTEM,
+                            SubjectType.WIDE_FIELD,
+                            SubjectType.STAR_TRAILS,
+                            SubjectType.NORTHERN_LIGHTS,
+                            SubjectType.OTHER
+                        )) &
+                        Q(acquisition=None) | Q(acquisition__date=None)).distinct()
                 else:
                     if active is None:
                         if years:
@@ -1018,10 +1189,10 @@ def user_page(request, username):
 
             if active == '0':
                 qs = qs.filter(
-                    (Q(subject_type=100) | Q(subject_type=200)) &
+                    (Q(subject_type=SubjectType.DEEP_SKY) | Q(subject_type=SubjectType.SOLAR_SYSTEM)) &
                     (Q(imaging_telescopes=None) | Q(imaging_cameras=None))).distinct()
             elif active == '-1':
-                qs = qs.filter(Q(subject_type=500)).distinct()
+                qs = qs.filter(Q(subject_type=SubjectType.GEAR)).distinct()
             else:
                 if active is None:
                     if telescopes:
@@ -1045,22 +1216,22 @@ def user_page(request, username):
                 active = 'DEEP'
 
             if active == 'DEEP':
-                qs = qs.filter(subject_type=100)
+                qs = qs.filter(subject_type=SubjectType.DEEP_SKY)
 
             elif active == 'SOLAR':
-                qs = qs.filter(subject_type=200)
+                qs = qs.filter(subject_type=SubjectType.SOLAR_SYSTEM)
 
             elif active == 'WIDE':
-                qs = qs.filter(subject_type=300)
+                qs = qs.filter(subject_type=SubjectType.WIDE_FIELD)
 
             elif active == 'TRAILS':
-                qs = qs.filter(subject_type=400)
+                qs = qs.filter(subject_type=SubjectType.STAR_TRAILS)
 
             elif active == 'GEAR':
-                qs = qs.filter(subject_type=500)
+                qs = qs.filter(subject_type=SubjectType.GEAR)
 
             elif active == 'OTHER':
-                qs = qs.filter(subject_type=600)
+                qs = qs.filter(subject_type=SubjectType.OTHER)
 
         ###########
         # NO DATA #
@@ -1075,7 +1246,7 @@ def user_page(request, username):
 
             if active == 'SUB':
                 qs = qs.filter(
-                    (Q(subject_type=100) | Q(subject_type=200)) &
+                    (Q(subject_type=SubjectType.DEEP_SKY) | Q(subject_type=SubjectType.SOLAR_SYSTEM)) &
                     (Q(solar_system_main_subject=None)))
                 qs = [x for x in qs if (x.solution is None or x.solution.objects_in_field is None)]
                 for i in qs:
@@ -1086,12 +1257,24 @@ def user_page(request, username):
 
             elif active == 'GEAR':
                 qs = qs.filter(
-                    Q(subject_type__lt=500) &
+                    Q(subject_type__in=(
+                        SubjectType.DEEP_SKY,
+                        SubjectType.SOLAR_SYSTEM,
+                        SubjectType.WIDE_FIELD,
+                        SubjectType.STAR_TRAILS,
+                        SubjectType.NORTHERN_LIGHTS,
+                    )) &
                     (Q(imaging_telescopes=None) | Q(imaging_cameras=None)))
 
             elif active == 'ACQ':
                 qs = qs.filter(
-                    Q(subject_type__lt=500) &
+                    Q(subject_type__in=(
+                        SubjectType.DEEP_SKY,
+                        SubjectType.SOLAR_SYSTEM,
+                        SubjectType.WIDE_FIELD,
+                        SubjectType.STAR_TRAILS,
+                        SubjectType.NORTHERN_LIGHTS,
+                    )) &
                     Q(acquisition=None))
 
     # Calculate some stats
@@ -1160,22 +1343,18 @@ def user_page(request, username):
         'menu': menu,
         'stats': stats,
         'images_no': data['images'],
-        'public_images_no': Image.objects.filter(user=user).count(),
-        'wip_images_no': Image.wip.filter(user=user).count(),
-        'bookmarks_no': ToggleProperty.objects.toggleproperties_for_user("bookmark", user) \
-            .filter(content_type=image_ct).count(),
-        'likes_no': ToggleProperty.objects.toggleproperties_for_user("like", user) \
-            .filter(content_type=image_ct).count(),
         'alias': 'gallery',
+        'has_corrupted_images': Image.objects_including_wip.filter(
+            corrupted=True, user=user).count() > 0,
     }
+
+    response_dict.update(UserService(user).get_image_numbers(include_corrupted=request.user == user))
 
     template_name = 'user/profile.html'
     if request.is_ajax():
         template_name = 'inclusion_tags/image_list_entries.html'
 
-    return render_to_response(
-        template_name, response_dict,
-        context_instance=RequestContext(request))
+    return render(request, template_name, response_dict)
 
 
 @require_GET
@@ -1198,19 +1377,11 @@ def user_page_commercial_products(request, username):
         'merge_commercial_gear_form': MergeCommercialGearForm(user=user),
         'claim_retailed_gear_form': ClaimRetailedGearForm(user=user),
         'merge_retailed_gear_form': MergeRetailedGearForm(user=user),
-        'public_images_no': Image.objects.filter(user=user).count(),
-        'wip_images_no': Image.wip.filter(user=user).count(),
-        'bookmarks_no': ToggleProperty.objects.toggleproperties_for_user("bookmark", user) \
-            .filter(content_type=image_ct).count(),
-        'likes_no': ToggleProperty.objects.toggleproperties_for_user("like", user) \
-            .filter(content_type=image_ct).count(),
     }
 
-    return render_to_response(
-        'user/profile/commercial/products.html',
-        response_dict,
-        context_instance=RequestContext(request)
-    )
+    response_dict.update(UserService(user).get_image_numbers(include_corrupted=request.user == user))
+
+    return render(request, 'user/profile/commercial/products.html', response_dict)
 
 
 @user_passes_test(lambda u: u.is_superuser)
@@ -1220,78 +1391,50 @@ def user_ban(request, username):
     if request.method == 'POST':
         user.userprofile.delete()
 
-    return render_to_response(
-        'user/ban.html',
-        {
-            'user': user,
-            'deleted': request.method == 'POST',
-        },
-        context_instance=RequestContext(request))
+    return render(request, 'user/ban.html', {
+        'user': user,
+        'deleted': request.method == 'POST',
+    })
 
 
 @require_GET
 def user_page_bookmarks(request, username):
     user = get_object_or_404(UserProfile, user__username=username).user
 
-    image_ct = ContentType.objects.get(app_label='astrobin', model='image')
-    images = \
-        [x.object_id for x in \
-         ToggleProperty.objects.toggleproperties_for_user("bookmark", user) \
-             .filter(content_type=image_ct) \
-             .order_by('-created_on')
-         ]
-
     template_name = 'user/bookmarks.html'
     if request.is_ajax():
         template_name = 'inclusion_tags/image_list_entries.html'
 
-    return render_to_response(template_name,
-                              {
-                                  'requested_user': user,
-                                  'image_list': Image.objects.filter(pk__in=images),
-                                  'private_message_form': PrivateMessageForm(),
-                                  'public_images_no': Image.objects.filter(user=user).count(),
-                                  'wip_images_no': Image.wip.filter(user=user).count(),
-                                  'bookmarks_no': ToggleProperty.objects.toggleproperties_for_user("bookmark", user) \
-                              .filter(content_type=image_ct).count(),
-                                  'likes_no': ToggleProperty.objects.toggleproperties_for_user("like", user) \
-                              .filter(content_type=image_ct).count(),
-                                  'alias': 'gallery',
-                              },
-                              context_instance=RequestContext(request)
-                              )
+    response_dict = {
+        'requested_user': user,
+        'image_list': UserService(user).get_bookmarked_images(),
+        'private_message_form': PrivateMessageForm(),
+        'alias': 'gallery',
+    }
+
+    response_dict.update(UserService(user).get_image_numbers(include_corrupted=request.user == user))
+
+    return render(request, template_name, response_dict)
 
 
 @require_GET
 def user_page_liked(request, username):
     user = get_object_or_404(UserProfile, user__username=username).user
 
-    image_ct = ContentType.objects.get(app_label='astrobin', model='image')
-    images = \
-        [x.object_id for x in \
-         ToggleProperty.objects.toggleproperties_for_user("like", user) \
-             .filter(content_type=image_ct)
-         ]
-
     template_name = 'user/liked.html'
     if request.is_ajax():
         template_name = 'inclusion_tags/image_list_entries.html'
 
-    return render_to_response(template_name,
-                              {
-                                  'requested_user': user,
-                                  'image_list': Image.objects.filter(pk__in=images),
-                                  'private_message_form': PrivateMessageForm(),
-                                  'public_images_no': Image.objects.filter(user=user).count(),
-                                  'wip_images_no': Image.wip.filter(user=user).count(),
-                                  'bookmarks_no': ToggleProperty.objects.toggleproperties_for_user("bookmark", user) \
-                              .filter(content_type=image_ct).count(),
-                                  'likes_no': ToggleProperty.objects.toggleproperties_for_user("like", user) \
-                              .filter(content_type=image_ct).count(),
-                                  'alias': 'gallery',
-                              },
-                              context_instance=RequestContext(request)
-                              )
+    response_dict = {
+        'requested_user': user,
+        'image_list': UserService(user).get_liked_images(),
+        'private_message_form': PrivateMessageForm(),
+        'alias': 'gallery',
+    }
+
+    response_dict.update(UserService(user).get_image_numbers(include_corrupted=request.user == user))
+
+    return render(request, template_name, response_dict)
 
 
 @require_GET
@@ -1300,7 +1443,6 @@ def user_page_following(request, username, extra_context=None):
     user = get_object_or_404(UserProfile, user__username=username).user
 
     user_ct = ContentType.objects.get_for_model(User)
-    image_ct = ContentType.objects.get_for_model(Image)
     followed_users = []
     properties = ToggleProperty.objects.filter(
         property_type="follow",
@@ -1317,23 +1459,18 @@ def user_page_following(request, username, extra_context=None):
     if request.is_ajax():
         template_name = 'astrobin_apps_users/inclusion_tags/user_list_entries.html'
 
-    return render_to_response(template_name,
-                              {
-                                  'request_user': UserProfile.objects.get(
-                                      user=request.user).user if request.user.is_authenticated() else None,
-                                  'requested_user': user,
-                                  'user_list': followed_users,
-                                  'view': request.GET.get('view', 'default'),
-                                  'private_message_form': PrivateMessageForm(),
-                                  'public_images_no': Image.objects.filter(user=user).count(),
-                                  'wip_images_no': Image.wip.filter(user=user).count(),
-                                  'bookmarks_no': ToggleProperty.objects.toggleproperties_for_user("bookmark", user) \
-                              .filter(content_type=image_ct).count(),
-                                  'likes_no': ToggleProperty.objects.toggleproperties_for_user("like", user) \
-                              .filter(content_type=image_ct).count(),
-                              },
-                              context_instance=RequestContext(request)
-                              )
+    response_dict = {
+        'request_user': UserProfile.objects.get(
+            user=request.user).user if request.user.is_authenticated() else None,
+        'requested_user': user,
+        'user_list': followed_users,
+        'view': request.GET.get('view', 'default'),
+        'private_message_form': PrivateMessageForm(),
+    }
+
+    response_dict.update(UserService(user).get_image_numbers(include_corrupted=request.user == user))
+
+    return render(request, template_name, response_dict)
 
 
 @require_GET
@@ -1342,7 +1479,6 @@ def user_page_followers(request, username, extra_context=None):
     user = get_object_or_404(UserProfile, user__username=username).user
 
     user_ct = ContentType.objects.get_for_model(User)
-    image_ct = ContentType.objects.get_for_model(Image)
     followers = [
         x.user for x in
         ToggleProperty.objects.filter(
@@ -1355,23 +1491,18 @@ def user_page_followers(request, username, extra_context=None):
     if request.is_ajax():
         template_name = 'astrobin_apps_users/inclusion_tags/user_list_entries.html'
 
-    return render_to_response(template_name,
-                              {
-                                  'request_user': UserProfile.objects.get(
-                                      user=request.user).user if request.user.is_authenticated() else None,
-                                  'requested_user': user,
-                                  'user_list': followers,
-                                  'view': request.GET.get('view', 'default'),
-                                  'private_message_form': PrivateMessageForm(),
-                                  'public_images_no': Image.objects.filter(user=user).count(),
-                                  'wip_images_no': Image.wip.filter(user=user).count(),
-                                  'bookmarks_no': ToggleProperty.objects.toggleproperties_for_user("bookmark", user) \
-                              .filter(content_type=image_ct).count(),
-                                  'likes_no': ToggleProperty.objects.toggleproperties_for_user("like", user) \
-                              .filter(content_type=image_ct).count(),
-                              },
-                              context_instance=RequestContext(request)
-                              )
+    response_dict = {
+        'request_user': UserProfile.objects.get(
+            user=request.user).user if request.user.is_authenticated() else None,
+        'requested_user': user,
+        'user_list': followers,
+        'view': request.GET.get('view', 'default'),
+        'private_message_form': PrivateMessageForm(),
+    }
+
+    response_dict.update(UserService(user).get_image_numbers(include_corrupted=request.user == user))
+
+    return render(request, template_name, response_dict)
 
 
 @require_GET
@@ -1379,21 +1510,15 @@ def user_page_plots(request, username):
     """Shows the user's public page"""
     user = get_object_or_404(UserProfile, user__username=username).user
     profile = user.userprofile
-    image_ct = ContentType.objects.get_for_model(Image)
 
-    return render_to_response(
-        'user/plots.html',
-        {
-            'requested_user': user,
-            'profile': profile,
-            'public_images_no': Image.objects.filter(user=user).count(),
-            'wip_images_no': Image.wip.filter(user=user).count(),
-            'bookmarks_no': ToggleProperty.objects.toggleproperties_for_user("bookmark", user) \
-                .filter(content_type=image_ct).count(),
-            'likes_no': ToggleProperty.objects.toggleproperties_for_user("like", user) \
-                .filter(content_type=image_ct).count(),
-        },
-        context_instance=RequestContext(request))
+    response_dict = {
+        'requested_user': user,
+        'profile': profile,
+    }
+
+    response_dict.update(UserService(user).get_image_numbers(include_corrupted=request.user == user))
+
+    return render(request, 'user/plots.html', response_dict)
 
 
 @require_GET
@@ -1404,23 +1529,17 @@ def user_page_api_keys(request, username):
         return HttpResponseForbidden()
 
     profile = user.userprofile
-    image_ct = ContentType.objects.get_for_model(Image)
     keys = App.objects.filter(registrar=user)
 
-    return render_to_response(
-        'user/api_keys.html',
-        {
-            'requested_user': user,
-            'profile': profile,
-            'api_keys': keys,
-            'public_images_no': Image.objects.filter(user=user).count(),
-            'wip_images_no': Image.wip.filter(user=user).count(),
-            'bookmarks_no': ToggleProperty.objects.toggleproperties_for_user("bookmark", user) \
-                .filter(content_type=image_ct).count(),
-            'likes_no': ToggleProperty.objects.toggleproperties_for_user("like", user) \
-                .filter(content_type=image_ct).count(),
-        },
-        context_instance=RequestContext(request))
+    response_dict = {
+        'requested_user': user,
+        'profile': profile,
+        'api_keys': keys,
+    }
+
+    response_dict.update(UserService(user).get_image_numbers(include_corrupted=request.user == user))
+
+    return render(request, 'user/api_keys.html', response_dict)
 
 
 @require_GET
@@ -1507,9 +1626,7 @@ def user_profile_edit_basic(request):
     response_dict = {
         'form': form,
     }
-    return render_to_response("user/profile/edit/basic.html",
-                              response_dict,
-                              context_instance=RequestContext(request))
+    return render(request, "user/profile/edit/basic.html", response_dict)
 
 
 @login_required
@@ -1522,14 +1639,12 @@ def user_profile_save_basic(request):
     response_dict = {'form': form}
 
     if not form.is_valid():
-        return render_to_response("user/profile/edit/basic.html",
-                                  response_dict,
-                                  context_instance=RequestContext(request))
+        return render(request, "user/profile/edit/basic.html", response_dict)
 
     form.save()
 
     messages.success(request, _("Form saved. Thank you!"))
-    return HttpResponseRedirect("/profile/edit/basic/");
+    return HttpResponseRedirect("/profile/edit/basic/")
 
 
 @login_required
@@ -1542,15 +1657,13 @@ def user_profile_edit_commercial(request):
         if form.is_valid():
             form.save()
             messages.success(request, _("Form saved. Thank you!"))
-            return HttpResponseRedirect('/profile/edit/commercial/');
+            return HttpResponseRedirect('/profile/edit/commercial/')
     else:
         form = UserProfileEditCommercialForm(instance=profile)
 
-    return render_to_response("user/profile/edit/commercial.html",
-                              {
-                                  'form': form,
-                              },
-                              context_instance=RequestContext(request))
+    return render(request, "user/profile/edit/commercial.html", {
+        'form': form,
+    })
 
 
 @login_required
@@ -1563,15 +1676,13 @@ def user_profile_edit_retailer(request):
         if form.is_valid():
             form.save()
             messages.success(request, _("Form saved. Thank you!"))
-            return HttpResponseRedirect('/profile/edit/retailer/');
+            return HttpResponseRedirect('/profile/edit/retailer/')
     else:
         form = UserProfileEditRetailerForm(instance=profile)
 
-    return render_to_response("user/profile/edit/retailer.html",
-                              {
-                                  'form': form,
-                              },
-                              context_instance=RequestContext(request))
+    return render(request, "user/profile/edit/retailer.html", {
+        'form': form,
+    })
 
 
 @login_required
@@ -1579,10 +1690,9 @@ def user_profile_edit_retailer(request):
 def user_profile_edit_license(request):
     profile = request.user.userprofile
     form = DefaultImageLicenseForm(instance=profile)
-    return render_to_response(
-        'user/profile/edit/license.html',
-        {'form': form},
-        context_instance=RequestContext(request))
+    return render(request, 'user/profile/edit/license.html', {
+        'form': form
+    })
 
 
 @login_required
@@ -1592,10 +1702,9 @@ def user_profile_save_license(request):
     form = DefaultImageLicenseForm(data=request.POST, instance=profile)
 
     if not form.is_valid():
-        return render_to_response(
-            'user/profile/edit/license.html',
-            {'form': form},
-            context_instance=RequestContext(request))
+        return render(request, 'user/profile/edit/license.html', {
+            'form': form
+        })
 
     form.save()
 
@@ -1637,9 +1746,7 @@ def user_profile_edit_gear(request):
         prefill[label] = [all_gear, klass]
 
     response_dict['prefill'] = prefill
-    return render_to_response("user/profile/edit/gear.html",
-                              response_dict,
-                              context_instance=RequestContext(request))
+    return render(request, "user/profile/edit/gear.html", response_dict)
 
 
 @login_required
@@ -1662,13 +1769,10 @@ def user_profile_edit_locations(request):
     LocationsFormset = inlineformset_factory(
         UserProfile, Location, form=LocationEditForm, extra=1)
 
-    return render_to_response(
-        'user/profile/edit/locations.html',
-        {
-            'formset': LocationsFormset(instance=profile),
-            'profile': profile,
-        },
-        context_instance=RequestContext(request))
+    return render(request, 'user/profile/edit/locations.html', {
+        'formset': LocationsFormset(instance=profile),
+        'profile': profile,
+    })
 
 
 @login_required
@@ -1681,17 +1785,14 @@ def user_profile_save_locations(request):
     if not formset.is_valid():
         messages.error(request,
                        _("There was one or more errors processing the form. You may need to scroll down to see them."))
-        return render_to_response(
-            'user/profile/edit/locations.html',
-            {
-                'formset': formset,
-                'profile': profile,
-            },
-            context_instance=RequestContext(request))
+        return render(request, 'user/profile/edit/locations.html', {
+            'formset': formset,
+            'profile': profile,
+        })
 
     formset.save()
     messages.success(request, _("Form saved. Thank you!"))
-    return HttpResponseRedirect('/profile/edit/locations/');
+    return HttpResponseRedirect('/profile/edit/locations/')
 
 
 @login_required
@@ -1718,9 +1819,7 @@ def user_profile_save_gear(request):
             allGear = getattr(profile, k).all()
             prefill_dict[k] = jsonDump(allGear)
 
-        return render_to_response("user/profile/edit/gear.html",
-                                  response_dict,
-                                  context_instance=RequestContext(request))
+        return render(request, "user/profile/edit/gear.html", response_dict)
 
     for k, v in {"telescopes": [Telescope, profile.telescopes],
                  "mounts": [Mount, profile.mounts],
@@ -1759,19 +1858,31 @@ def user_profile_flickr_import(request):
         'readonly': settings.READONLY_MODE
     }
 
+    log.debug("Flickr import (user %s): accessed view" % request.user.username)
+
     if not request.user.is_superuser and is_free(request.user) or settings.READONLY_MODE:
-        return render_to_response(
-            "user/profile/flickr_import.html",
-            response_dict,
-            context_instance=RequestContext(request))
+        return render(request, "user/profile/flickr_import.html", response_dict)
+
+    flickr_token = None
+    if 'flickr_token_token' in request.session:
+        flickr_token = FlickrAccessToken(
+            request.session['flickr_token_token'],
+            request.session['flickr_token_token_secret'],
+            request.session['flickr_token_access_level'],
+            request.session['flickr_token_fullname'],
+            request.session['flickr_token_username'],
+            request.session['flickr_token_token_user_nsid'],
+        )
 
     flickr = flickrapi.FlickrAPI(settings.FLICKR_API_KEY,
                                  settings.FLICKR_SECRET,
-                                 username=request.user.username)
+                                 username=request.user.username,
+                                 token=flickr_token)
 
     if not flickr.token_valid(perms=u'read'):
         # We were never authenticated, or authentication expired. We need
         # to reauthenticate.
+        log.debug("Flickr import (user %s): token not valid" % request.user.username)
         flickr.get_request_token(settings.BASE_URL + reverse('flickr_auth_callback'))
         authorize_url = flickr.auth_url(perms=u'read')
         request.session['request_token'] = flickr.flickr_oauth.resource_owner_key
@@ -1783,26 +1894,32 @@ def user_profile_flickr_import(request):
         # If we made it this far (it's a GET request), it means that we
         # are authenticated with flickr. Let's fetch the sets and send them to
         # the template.
+        log.debug("Flickr import (user %s): token valid, GET request, fetching sets" % request.user.username)
 
-        # Hole shit, does it have to be so insane to get the info on the
+        # Does it have to be so insane to get the info on the
         # authenticated user?
         sets = flickr.photosets_getList().find('photosets').findall('photoset')
+
+        log.debug("Flickr import (user %s): token valid, fetched sets" % request.user.username)
         template_sets = {}
         for set in sets:
             template_sets[set.find('title').text] = set.attrib['id']
         response_dict['flickr_sets'] = template_sets
     else:
-        # This is POST!
+        log.debug("Flickr import (user %s): token valid, POST request" % request.user.username)
         if 'id_flickr_set' in request.POST:
+            log.debug("Flickr import (user %s): set in POST request" % request.user.username)
             set_id = request.POST['id_flickr_set']
             urls_sq = {}
             for photo in flickr.walk_set(set_id, extras='url_sq'):
                 urls_sq[photo.attrib['id']] = photo.attrib['url_sq']
                 response_dict['flickr_photos'] = urls_sq
         elif 'flickr_selected_photos[]' in request.POST:
+            log.debug("Flickr import (user %s): photos in POST request" % request.user.username)
             selected_photos = request.POST.getlist('flickr_selected_photos[]')
             # Starting the process of importing
             for index, photo_id in enumerate(selected_photos):
+                log.debug("Flickr import (user %s): iterating photo %s" % (request.user.username, photo_id))
                 sizes = flickr.photos_getSizes(photo_id=photo_id)
                 info = flickr.photos_getInfo(photo_id=photo_id).find('photo')
 
@@ -1817,6 +1934,8 @@ def user_profile_flickr_import(request):
                             found_size = size
 
                 if found_size is not None:
+                    log.debug("Flickr import (user %s): found largest side of photo %s" % (
+                        request.user.username, photo_id))
                     source = found_size.attrib['source']
 
                     img = NamedTemporaryFile(delete=True)
@@ -1834,15 +1953,17 @@ def user_profile_flickr_import(request):
                                   is_wip=True,
                                   license=profile.default_license)
                     image.save(keep_deleted=True)
+                    log.debug("Flickr import (user %s): saved image %d" % (request.user.username, image.pk))
 
+        log.debug("Flickr import (user %s): returning ajax response: %s" % (
+            request.user.username, simplejson.dumps(response_dict)))
         return ajax_response(response_dict)
 
-    return render_to_response("user/profile/flickr_import.html",
-                              response_dict,
-                              context_instance=RequestContext(request))
+    return render(request, "user/profile/flickr_import.html", response_dict)
 
 
 def flickr_auth_callback(request):
+    log.debug("Flickr import (user %s): received auth callback" % request.user.username)
     flickr = flickrapi.FlickrAPI(
         settings.FLICKR_API_KEY, settings.FLICKR_SECRET,
         username=request.user.username)
@@ -1851,6 +1972,14 @@ def flickr_auth_callback(request):
     flickr.flickr_oauth.requested_permissions = request.session['requested_permissions']
     verifier = request.GET['oauth_verifier']
     flickr.get_access_token(verifier)
+
+    request.session['flickr_token_token'] = flickr.token_cache.token.token
+    request.session['flickr_token_token_secret'] = flickr.token_cache.token.token_secret
+    request.session['flickr_token_access_level'] = flickr.token_cache.token.access_level
+    request.session['flickr_token_fullname'] = flickr.token_cache.token.fullname
+    request.session['flickr_token_username'] = flickr.token_cache.token.username
+    request.session['flickr_token_token_user_nsid'] = flickr.token_cache.token.user_nsid
+
     return HttpResponseRedirect("/profile/edit/flickr/")
 
 
@@ -1884,9 +2013,7 @@ def user_profile_edit_preferences(request):
         'form': form,
     }
 
-    return render_to_response("user/profile/edit/preferences.html",
-                              response_dict,
-                              context_instance=RequestContext(request))
+    return render(request, "user/profile/edit/preferences.html", response_dict)
 
 
 @login_required
@@ -1897,7 +2024,7 @@ def user_profile_save_preferences(request):
     profile = request.user.userprofile
     form = UserProfileEditPreferencesForm(data=request.POST, instance=profile)
     response_dict = {'form': form}
-    response = HttpResponseRedirect("/profile/edit/preferences/");
+    response = HttpResponseRedirect("/profile/edit/preferences/")
 
     if form.is_valid():
         form.save()
@@ -1911,9 +2038,7 @@ def user_profile_save_preferences(request):
             response.set_cookie(settings.LANGUAGE_COOKIE_NAME, lang)
             activate(lang)
     else:
-        return render_to_response("user/profile/edit/preferences.html",
-                                  response_dict,
-                                  context_instance=RequestContext(request))
+        return render(request, "user/profile/edit/preferences.html", response_dict)
 
     messages.success(request, _("Form saved. Thank you!"))
     return response
@@ -1925,18 +2050,12 @@ def user_profile_delete(request):
         request.user.userprofile.delete()
         auth.logout(request)
 
-    return render_to_response('user/profile/delete.html',
-                              {}, context_instance=RequestContext(request))
+    return render(request, 'user/profile/delete.html', {})
 
 
 @login_required
 @require_POST
 def image_revision_upload_process(request):
-    # TODO: unify Image and ImageRevision
-    def upload_error(image):
-        messages.error(request, _("Invalid image or no image provided. Allowed formats are JPG, PNG and GIF."))
-        return HttpResponseRedirect(image.get_absolute_url())
-
     try:
         image_id = request.POST['image_id']
     except MultiValueDictKeyError:
@@ -1952,45 +2071,64 @@ def image_revision_upload_process(request):
     form = ImageRevisionUploadForm(request.POST, request.FILES)
 
     if not form.is_valid():
-        return upload_error(image)
+        return upload_error(request, image)
+
+    max_revisions = premium_get_max_allowed_revisions(request.user)
+    if image.revisions.count() >= max_revisions:
+        return upload_max_revisions_error(request, max_revisions, image)
 
     image_file = request.FILES["image_file"]
     ext = os.path.splitext(image_file.name)[1].lower()
 
     if ext not in settings.ALLOWED_IMAGE_EXTENSIONS:
-        return upload_error(image)
+        return upload_error(request, image)
+
+    max_size = premium_get_max_allowed_image_size(request.user)
+    if image_file.size > max_size:
+        return upload_size_error(request, max_size, image)
 
     if image_file.size < 1e+7:
         try:
             from PIL import Image as PILImage
             trial_image = PILImage.open(image_file)
             trial_image.verify()
-            image_file.file.seek(0) # Because we opened it with PIL
+            image_file.file.seek(0)  # Because we opened it with PIL
 
             if ext == '.png' and trial_image.mode == 'I':
                 messages.warning(request, _(
                     "You uploaded an Indexed PNG file. AstroBin will need to lower the color count to 256 in order to work with it."))
         except:
-            return upload_error(image)
-    else:
-        messages.warning(request, _(
-            "You uploaded a pretty large file. For that reason, AstroBin could not verify that it's a valid image."))
+            return upload_error(request, image)
 
     revisions = ImageRevision.all_objects.filter(image=image).order_by('id')
+
+    mark_as_final = request.POST.get(u'mark_as_final', None) == u'on' # type: bool
+
     highest_label = 'A'
     for r in revisions:
-        r.is_final = False
-        r.save(keep_deleted=True)
         highest_label = r.label
-
-    image.is_final = False
-    image.save(keep_deleted=True)
+        if mark_as_final:
+            r.is_final = False
+            r.save(keep_deleted=True)
 
     image_revision = form.save(commit=False)
+
+    if mark_as_final:
+        image.is_final = False
+        image.save(keep_deleted=True)
+        image_revision.is_final = True
+
     image_revision.user = request.user
     image_revision.image = image
-    image_revision.is_final = True
     image_revision.label = base26_encode(base26_decode(highest_label) + 1)
+
+    w, h = image_revision.w, image_revision.h
+
+    if w == 0 or h == 0:
+        w, h = get_image_dimensions(image_revision.image_file.file)
+
+    if w == image.w and h == image.h:
+        image_revision.square_cropping = image.square_cropping
 
     image_revision.save(keep_deleted=True)
 
@@ -2069,54 +2207,8 @@ def trending_astrophotographers(request):
 
 
 @require_GET
-def help(request):
-    return render_to_response('help.html',
-                              context_instance=RequestContext(request))
-
-
-@require_GET
 def api_help(request):
-    return render_to_response('api.html',
-                              {
-                              },
-                              context_instance=RequestContext(request))
-
-
-@require_GET
-def affiliates(request):
-    return object_list(
-        request,
-        queryset=UserProfile.objects
-            .filter(
-            Q(user__groups__name='Producers') |
-            Q(user__groups__name='Retailers'))
-            .filter(
-            Q(user__groups__name='Paying'))
-            .exclude(
-            Q(company_name=None) |
-            Q(company_name="")).distinct(),
-        template_name='affiliates.html',
-        template_object_name='affiliate',
-        paginate_by=100,
-    )
-
-
-@require_GET
-def faq(request):
-    return render_to_response('faq.html',
-                              context_instance=RequestContext(request))
-
-
-@require_GET
-def tos(request):
-    return render_to_response('tos.html',
-                              context_instance=RequestContext(request))
-
-
-@require_GET
-def guidelines(request):
-    return render_to_response('guidelines.html',
-                              context_instance=RequestContext(request))
+    return render(request, 'api.html')
 
 
 @login_required
@@ -2125,14 +2217,14 @@ def location_edit(request, id):
     location = get_object_or_404(Location, pk=id)
     form = LocationEditForm(instance=location)
 
-    return render_to_response('location/edit.html',
-                              {'form': form,
-                               'id': id,
-                               },
-                              context_instance=RequestContext(request))
+    return render(request, 'location/edit.html', {
+        'form': form,
+        'id': id,
+    })
 
 
 @require_GET
+@never_cache
 def set_language(request, lang):
     from django.utils.translation import check_for_language, activate
 
@@ -2470,7 +2562,7 @@ def gear_page(request, id, slug):
 
     all_images = Image.by_gear(gear, gear_type).filter(is_wip=False)
     show_commercial = (gear.commercial and gear.commercial.is_paid()) or (
-                gear.commercial and gear.commercial.producer == request.user)
+            gear.commercial and gear.commercial.producer == request.user)
     content_type = ContentType.objects.get(app_label='astrobin', model='gear')
     reviews = Review.objects.filter(content_id=id, content_type=content_type)
 
@@ -2495,9 +2587,7 @@ def gear_page(request, id, slug):
         'show_description': show_commercial and gear.commercial.description,
     }
 
-    return render_to_response('gear/page.html',
-                              response_dict,
-                              context_instance=RequestContext(request))
+    return render(request, 'gear/page.html', response_dict)
 
 
 @require_GET
@@ -2698,20 +2788,17 @@ def gear_fix(request, id):
     # Disable this view for now. We're good.
     return HttpResponseForbidden()
 
-    gear = get_object_or_404(Gear, id=id)
-    form = ModeratorGearFixForm(instance=gear)
-    next_gear = Gear.objects.filter(moderator_fixed=None).order_by('?')[:1].get()
-
-    return render_to_response(
-        'gear/fix.html',
-        {
-            'form': form,
-            'gear': gear,
-            'next_gear': next_gear,
-            'already_fixed': Gear.objects.exclude(moderator_fixed=None).count(),
-            'remaining': Gear.objects.filter(moderator_fixed=None).count(),
-        },
-        context_instance=RequestContext(request))
+    # gear = get_object_or_404(Gear, id=id)
+    # form = ModeratorGearFixForm(instance=gear)
+    # next_gear = Gear.objects.filter(moderator_fixed=None).order_by('?')[:1].get()
+    #
+    # return render(request, 'gear/fix.html', {
+    #     'form': form,
+    #     'gear': gear,
+    #     'next_gear': next_gear,
+    #     'already_fixed': Gear.objects.exclude(moderator_fixed=None).count(),
+    #     'remaining': Gear.objects.filter(moderator_fixed=None).count(),
+    # })
 
 
 @require_POST
@@ -2720,25 +2807,22 @@ def gear_fix_save(request):
     # Disable this view for now. We're good.
     return HttpResponseForbidden()
 
-    id = request.POST.get('gear_id')
-    gear = get_object_or_404(Gear, id=id)
-    form = ModeratorGearFixForm(data=request.POST, instance=gear)
-    next_gear = Gear.objects.filter(moderator_fixed=None).order_by('?')[:1].get()
-
-    if not form.is_valid():
-        return render_to_response(
-            'gear/fix.html',
-            {
-                'form': form,
-                'gear': gear,
-                'next_gear': next_gear,
-                'already_fixed': Gear.objects.exclude(moderator_fixed=None).count(),
-                'remaining': Gear.objects.filter(moderator_fixed=None).count(),
-            },
-            context_instance=RequestContext(request))
-
-    form.save()
-    return HttpResponseRedirect('/gear/fix/%d/' % next_gear.id)
+    # id = request.POST.get('gear_id')
+    # gear = get_object_or_404(Gear, id=id)
+    # form = ModeratorGearFixForm(data=request.POST, instance=gear)
+    # next_gear = Gear.objects.filter(moderator_fixed=None).order_by('?')[:1].get()
+    #
+    # if not form.is_valid():
+    #     return render(request, 'gear/fix.html', {
+    #         'form': form,
+    #         'gear': gear,
+    #         'next_gear': next_gear,
+    #         'already_fixed': Gear.objects.exclude(moderator_fixed=None).count(),
+    #         'remaining': Gear.objects.filter(moderator_fixed=None).count(),
+    #     })
+    #
+    # form.save()
+    # return HttpResponseRedirect('/gear/fix/%d/' % next_gear.id)
 
 
 @require_GET
@@ -2747,9 +2831,7 @@ def gear_fix_thanks(request):
     # Disable this view for now. We're good.
     return HttpResponseForbidden()
 
-    return render_to_response(
-        'gear/fix_thanks.html',
-        context_instance=RequestContext(request))
+    return render(request, 'gear/fix_thanks.html')
 
 
 @require_POST
@@ -2822,7 +2904,7 @@ def commercial_products_claim(request, id):
         if gear.commercial:
             return error(form)
     except Gear.DoesNotExist:
-        return error(form);
+        return error(form)
 
     # We need to add the choice to the field so that the form will validate.
     # If we don't, it won't validate because the selected option, which was
@@ -2951,14 +3033,11 @@ def commercial_products_edit(request, id):
 
     form = CommercialGearForm(instance=product, user=request.user)
 
-    return render_to_response(
-        'commercial/products/edit.html',
-        {
-            'form': form,
-            'product': product,
-            'gear': Gear.objects.filter(commercial=product)[0],
-        },
-        context_instance=RequestContext(request))
+    return render(request, 'commercial/products/edit.html', {
+        'form': form,
+        'product': product,
+        'gear': Gear.objects.filter(commercial=product)[0],
+    })
 
 
 @require_POST
@@ -2979,14 +3058,11 @@ def commercial_products_save(request, id):
         messages.success(request, _("Form saved. Thank you!"))
         return HttpResponseRedirect('/commercial/products/edit/%i/' % product.id)
 
-    return render_to_response(
-        'commercial/products/edit.html',
-        {
-            'form': form,
-            'product': product,
-            'gear': Gear.objects.filter(commercial=product)[0],
-        },
-        context_instance=RequestContext(request))
+    return render(request, 'commercial/products/edit.html', {
+        'form': form,
+        'product': product,
+        'gear': Gear.objects.filter(commercial=product)[0],
+    })
 
 
 @require_POST
@@ -3010,7 +3086,7 @@ def retailed_products_claim(request, id):
         gear = Gear.objects.get(id=id)
         # Here, instead, we can claim something that's already claimed!
     except Gear.DoesNotExist:
-        return error(form);
+        return error(form)
 
     # We need to add the choice to the field so that the form will validate.
     # If we don't, it won't validate because the selected option, which was
@@ -3151,11 +3227,8 @@ def retailed_products_edit(request, id):
     else:
         form = RetailedGearForm(instance=product)
 
-    return render_to_response(
-        'commercial/products/retailed/edit.html',
-        {
-            'form': form,
-            'product': product,
-            'gear': Gear.objects.filter(retailed=product)[0],
-        },
-        context_instance=RequestContext(request))
+    return render(request, 'commercial/products/retailed/edit.html', {
+        'form': form,
+        'product': product,
+        'gear': Gear.objects.filter(retailed=product)[0],
+    })

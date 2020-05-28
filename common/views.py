@@ -1,20 +1,23 @@
-# Django
-
-# Third party apps
+from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
 from rest_framework import generics
-# AstroBin
 from rest_framework.filters import DjangoFilterBackend
-from subscription.models import UserSubscription, Subscription
+from subscription.models import Subscription, UserSubscription
 
-# This app
+from astrobin.models import UserProfile
 from .permissions import ReadOnly
-from .serializers import *
+from .serializers import ContentTypeSerializer, UserSerializer, UserProfileSerializer, UserProfileSerializerPrivate, \
+    SubscriptionSerializer, UserSubscriptionSerializer
 
 
+@method_decorator(cache_page(60 * 60 * 24), name='dispatch')
 class ContentTypeList(generics.ListAPIView):
     model = ContentType
     serializer_class = ContentTypeSerializer
     permission_classes = (ReadOnly,)
+    pagination_class = None
     filter_fields = ('app_label', 'model',)
 
 
@@ -32,6 +35,7 @@ class UserList(generics.ListAPIView):
     model = User
     serializer_class = UserSerializer
     permission_classes = (ReadOnly,)
+    pagination_class = None
     queryset = User.objects.all()
 
 
@@ -52,6 +56,7 @@ class UserProfileList(generics.ListAPIView):
     model = UserProfile
     serializer_class = UserProfileSerializer
     permission_classes = (ReadOnly,)
+    pagination_class = None
     queryset = UserProfile.objects.all()
 
 
@@ -77,6 +82,7 @@ class CurrentUserProfileDetail(generics.ListAPIView):
     model = UserProfile
     permission_classes = (ReadOnly,)
     queryset = UserProfile.objects.all()
+    pagination_class = None
 
     def get_serializer_class(self):
         profile = self.get_queryset().first()
@@ -90,15 +96,18 @@ class CurrentUserProfileDetail(generics.ListAPIView):
         return self.model.objects.none()
 
 
+@method_decorator(cache_page(60 * 60 * 24), name='dispatch')
 class SubscriptionList(generics.ListAPIView):
     model = Subscription
     serializer_class = SubscriptionSerializer
     permission_classes = (ReadOnly,)
+    pagination_class = None
     queryset = Subscription.objects.all()
     filter_backends = (DjangoFilterBackend,)
     filter_fields = ('category',)
 
 
+@method_decorator(cache_page(60 * 60 * 24), name='dispatch')
 class SubscriptionDetail(generics.RetrieveAPIView):
     model = Subscription
     serializer_class = SubscriptionSerializer
@@ -110,6 +119,7 @@ class UserSubscriptionList(generics.ListAPIView):
     model = UserSubscription
     serializer_class = UserSubscriptionSerializer
     permission_classes = (ReadOnly,)
+    pagination_class = None
     queryset = UserSubscription.objects.all()
     filter_backends = (DjangoFilterBackend,)
     filter_fields = ('user',)

@@ -11,14 +11,15 @@ from astrobin.models import Image, UserProfile
 from astrobin_apps_premium.utils import premium_user_has_valid_subscription
 
 # Third party apps
+from astrobin_apps_users.services import UserService
 from toggleproperties.models import ToggleProperty
 
 
 register = Library()
 
 
-@register.inclusion_tag('astrobin_apps_users/inclusion_tags/astrobin_username.html')
-def astrobin_username(user, **kwargs):
+@register.inclusion_tag('astrobin_apps_users/inclusion_tags/astrobin_username.html', takes_context=True)
+def astrobin_username(context, user, **kwargs):
     if not hasattr(user, 'userprofile'):
         try:
             user = UserProfile.objects.get(user__username = user).user
@@ -78,28 +79,33 @@ def astrobin_username(user, **kwargs):
         classes.append(' astrobin-premium-member')
         titles.append(_('Premium member'))
 
-    context = user_metadata.copy()
-    context.update({
+    response = user_metadata
+    response.update({
+        'request': context['request'],
         'user': user,
         'classes': classes,
         'titles': titles,
         'link': kwargs.get('link', True),
     })
 
-    return context
+    return response
 
 
 @register.inclusion_tag('astrobin_apps_users/inclusion_tags/astrobin_user.html', takes_context = True)
 def astrobin_user(context, user, **kwargs):
+    request = context['request']
+
     user_ct = ContentType.objects.get_for_model(User)
-    images = Image.objects.filter(user = user).count()
+    images = Image.objects.filter(user = user)
+    if request.user != user:
+        images = images.exclude(UserService.corrupted_query())
+
     followers = ToggleProperty.objects.toggleproperties_for_object("follow", user).count()
     following = ToggleProperty.objects.filter(
         property_type = "follow",
         user = user,
         content_type = user_ct).count()
 
-    request = context['request']
     request_user = None
     if request.user.is_authenticated():
         request_user = UserProfile.objects.get(user=request.user).user
@@ -122,7 +128,8 @@ def astrobin_user(context, user, **kwargs):
         'request_user': request_user,
         'view': view,
         'layout': layout,
-        'images': images,
+        'user_is_owner': request.user == user,
+        'images': images.count(),
         'followers': followers,
         'following': following,
 

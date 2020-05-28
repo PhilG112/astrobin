@@ -1,5 +1,8 @@
 {% load common_tags %}
 {% load i18n %}
+{% load astrobin_apps_premium_tags %}
+{% load astrobin_apps_platesolving_tags %}
+{% load tags %}
 
 {% if request.user == image.user or request.user.is_superuser %}
     {% if READONLY_MODE %}
@@ -18,6 +21,13 @@
         </a>
         <ul class="dropdown-menu">
             <li>
+                <a href="{% url 'image_edit_thumbnails' image.get_id %}">
+                    <i class="icon-check-empty"></i>
+                    {% trans "Thumbnails" %}
+                </a>
+            </li>
+
+            <li>
                 <a href="{% url 'image_edit_watermark' image.get_id %}">
                     <i class="icon-tint"></i>
                     {% trans "Watermark" %}
@@ -31,7 +41,7 @@
                 </a>
             </li>
 
-            {% if image.subject_type < 500 %}
+            {% if image|can_add_technical_details %}
                 <li>
                     <a href="{% url 'image_edit_gear' image.get_id %}">
                         <i class="icon-cog"></i>
@@ -47,25 +57,77 @@
                 </li>
             {% endif %}
 
-            {% if image.is_platesolvable %}
-            <li>
-                {% if is_revision %}
-                    <a href="{% url 'image_edit_platesolving_settings' image.get_id revision_image.label %}">
-                {% else %}
-                    <a href="{% url 'image_edit_platesolving_settings' image.get_id %}">
-                {% endif %}
-                    <i class="icon-location-arrow"></i>
-                    {% trans "Plate-solving settings" %}
-                </a>
-            </li>
-            {% endif %}
-
             <li>
                 <a href="{% url 'image_edit_license' image.get_id %}">
                     <i class="icon-legal"></i>
                     {% trans "License" %}
                 </a>
             </li>
+
+            {% if image.is_platesolvable %}
+                <li class="divider"></li>
+
+                <li>
+                    {% if request.user|can_perform_basic_platesolving %}
+                        {% if is_revision %}
+                            <a href="{% url 'image_edit_platesolving_settings' image.get_id revision_image.label %}">
+                        {% else %}
+                            <a href="{% url 'image_edit_platesolving_settings' image.get_id %}">
+                        {% endif %}
+                    {% else %}
+                        <a href="#feature-restricted-modal" data-toggle="modal">
+                    {% endif %}
+
+                    <i class="icon-location-arrow"></i>
+                    {% trans "Plate-solving settings" %}
+                    </a>
+                </li>
+
+                {% if request.user|can_perform_basic_platesolving %}
+                    <li>
+                        <a href="
+                            {% if is_revision %}
+                                {% url 'image_restart_platesolving' image.get_id revision_image.label %}
+                            {% else %}
+                                {% url 'image_restart_platesolving' image.get_id %}
+                            {% endif %}
+                        ">
+                            <i class="icon-repeat"></i>
+                            {% trans "Restart plate-solving" %}
+                        </a>
+                    </li>
+                {% endif %}
+
+                {% if request.user|can_perform_advanced_platesolving %}
+                    <li class="divider"></li>
+
+                    <li>
+                        {% if is_revision %}
+                            <a href="{% url 'image_edit_platesolving_advanced_settings' image.get_id revision_image.label %}">
+                        {% else %}
+                            <a href="{% url 'image_edit_platesolving_advanced_settings' image.get_id %}">
+                        {% endif %}
+
+                        <i class="icon-location-arrow"></i>
+                        {% trans "Advanced plate-solving settings" %}
+                        </a>
+                    </li>
+
+                    <li>
+                        <a href="
+                            {% if is_revision %}
+                                {% url 'image_restart_advanced_platesolving' image.get_id revision_image.label %}
+                            {% else %}
+                                {% url 'image_restart_advanced_platesolving' image.get_id %}
+                            {% endif %}
+                        ">
+                            <i class="icon-repeat"></i>
+                            {% trans "Restart advanced plate-solving" %}
+                        </a>
+                    </li>
+                {% endif %}
+            {% endif %}
+
         </ul>
     </li>
     {% endif %} {# READONLY #}

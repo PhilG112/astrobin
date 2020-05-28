@@ -1,4 +1,5 @@
 {% load i18n %}
+{% load astrobin_apps_premium_tags %}
 
 <div class="modal hide fade" id="delete-modal">
     <div class="modal-header">
@@ -7,7 +8,11 @@
     </div>
     <div class="modal-body">
         <div class="well">
-            {% trans "The image will be permanently deleted and cannot be recovered. All its revisions will be deleted too. Are you sure?" %}
+            {% if request.user|can_restore_from_trash %}
+                {% trans "The image will be moved to the trash, and it can be restored later. All its revisions will be there too. Continue?" %}
+            {% else %}
+                {% trans "The image will be permanently deleted and cannot be recovered. All its revisions will be deleted too. Are you sure?" %}
+            {% endif %}
         </div>
 
         <form class="form-inline" action="{% url 'image_delete' image.get_id %}" method="post">{% csrf_token %}
@@ -15,24 +20,6 @@
         </form>
     </div>
 </div>
-
-{% if is_revision and revision_image %}
-    <div class="modal hide fade" id="delete-revision-modal">
-        <div class="modal-header">
-            <a class="close" data-dismiss="modal">&times;</a>
-            <h3>{% trans "Delete this revision?" %}</h3>
-        </div>
-        <div class="modal-body">
-            <div class="well">
-                {% trans "This revision will be permanently deleted and cannot be recovered. Are you sure?"%}
-            </div>
-
-            <form class="form-inline" action="{% url 'image_delete_revision' revision_image.id %}" method="post">{% csrf_token %}
-                <input class="btn btn-primary" type="submit" value="{% trans "Delete" %}"/>
-            </form>
-        </div>
-    </div>
-{% endif %}
 
 <div class="modal hide fade" id="delete-original-image-modal">
     <div class="modal-header">

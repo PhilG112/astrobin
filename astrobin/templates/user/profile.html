@@ -29,6 +29,56 @@
     </div>
     {% endif %}
 
+    {% if requested_user == request.user and section == 'trash' %}
+        <div class="subtitle">
+            <i class="icon icon-info-sign"></i>
+            {% blocktrans %}These are your "deleted" images: only you can see this list. Click the images you want to
+            restore, and then use the button below to confirm.{% endblocktrans %}
+        </div>
+    {% endif %}
+
+    {% if requested_user == request.user and has_corrupted_images and section == 'corrupted' and not request.COOKIES.astrobin_corrupted_images_banner_seen %}
+        <div class="alert alert-warning corrupted-images-banner">
+            <button class="close" data-dismiss="alert">&times;</button>
+
+            <h4>
+                <i class="icon icon-warning-sign"></i> {% trans "Oh no!" %}
+            </h4>
+
+            <p>
+                {% blocktrans with "forum/c/astrobin/annoucements/official-statement-and-post-mortem-about-the-data-loss/" as data_corruption_url %}
+                    We are very, very sorry, but it appears that some of your images suffered a catastrophic data
+                    corruption, and cannot be retrieved. Please read more <a href="{{ data_corruption_url }}">here</a>.
+                {% endblocktrans %}
+            </p>
+            <p>
+                {% blocktrans %}
+                    Please click on the thumbnails stuck with the hourglass icon to upload the image files that you
+                    still have on your computer or backups to their pages again.
+                {% endblocktrans %}
+            </p>
+
+            <p>
+                {% blocktrans %}
+                    The data associated to your affected images, such as title, description, equipment used, acquisition
+                    details, comments, likes, bookmarks, and so on, is still intact and safe.
+                {% endblocktrans %}
+            </p>
+
+            <p>
+                {% blocktrans %}
+                    AstroBin would like to offer you its sincerest apologies. :(
+                {% endblocktrans %}
+            </p>
+
+            <p>
+                <button class="btn btn-primary dont-show-again">
+                    {% trans "Okay, don't show this again" %}
+                </button>
+            </p>
+        </div>
+    {% endif %}
+
     <div class="row">
         <div class="span3">
             {% include 'user/profile/meta.html' %}
@@ -38,13 +88,17 @@
             {% if subsection == 'nodata' %}
             <div class="well">
                 {% blocktrans %}These images don't have enough data. It's a shame...{% endblocktrans %}
-                {% if request.user = requested_user %}
+                {% if request.user == requested_user %}
                     {% blocktrans %}If you want your images to be categorized in albums, you should really fill in some data. Imaging telescopes, imaging cameras and subjects are the bare minimum. Dates of acquisitions are very important too.{% endblocktrans %}
                 {% endif %}
             </div>
             {% endif %}
 
-            {% image_list image_list nav_ctx='user' %}
+            {% if section == 'trash' %}
+                {% include "user/profile/trash_image_list.html" %}
+            {% else %}
+                {% image_list image_list nav_ctx='user' %}
+            {% endif %}
         </div> <!-- images -->
     </div> <!-- row -->
 {% endblock %}
@@ -52,10 +106,6 @@
 {% block modals %}
     {% if request.user == requested_user and requested_user|is_donor %}
         {% cancel_donation_modal %}
-    {% endif %}
-
-    {% if ADS_ENABLED and not request.user|is_donor %}
-        {% remove_ads_modal %}
     {% endif %}
 {% endblock %}
 

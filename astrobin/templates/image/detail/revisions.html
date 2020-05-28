@@ -1,30 +1,47 @@
-{% load astrobin_apps_images_tags %}
 {% load i18n %}
 {% load sanitizer %}
+{% load tags %}
+{% load astrobin_apps_images_tags %}
 
 {% if revisions %}
     <div class="subtle-container">
         <div class="header"><h4><i class="icon-picture"></i> {% trans "Revisions" %}</h4></div>
         <ul class="thumbnails astrobin-thumbnails">
-            <li class="thumbnail astrobin-thumbnail revisions">
-                <div class="revision">
-                    {% if image.is_final %}
-                        <div class="final">
-                            <span class="text">
-                                {% trans "Final" %}
-                            </span>
+            {% if not image.corrupted %}
+                <li class="thumbnail astrobin-thumbnail revisions">
+                    <div class="revision">
+                        {% if image.is_final %}
+                            <div class="final">
+                                <span class="text">
+                                    {% trans "Final" %}
+                                </span>
+                            </div>
+                        {% endif %}
+
+                        {% if request.user == image.user or request.user.is_superuser %}
+                            <div class="edit">
+                                <a href="{% url 'image_edit_basic' image.get_id %}">
+                                    <i class="icon-pencil"></i>
+                                </a>
+                            </div>
+
+                            <div class="delete">
+                                <a data-toggle="modal" class="danger" href="#delete-original-image-modal">
+                                    <i class="icon-trash"></i>
+                                </a>
+                            </div>
+                        {% endif %}
+
+                        <div class="image">
+                            {% astrobin_image image 'thumb' revision='0' tooltip=False %}
                         </div>
-                    {% endif %}
 
-                    <div class="image">
-                        {% astrobin_image image 'thumb' revision='0' tooltip=False %}
-                    </div>
-
-                    <div class="label{% if revision_label == '0' %} active{% endif %}">
-                        {% trans "Original" %}
-                    </div>
-                </div> <!-- .revision -->
-            </li>
+                        <div class="label{% if revision_label == '0' %} active{% endif %}">
+                            {% trans "Original" %}
+                        </div>
+                    </div> <!-- .revision -->
+                </li>
+            {% endif %}
 
             {% for r in revisions %}
                 <li class="thumbnail astrobin-thumbnail revisions">
@@ -37,13 +54,19 @@
                             </div>
                         {% endif %}
 
-                        {% ifequal request.user image.user %}
+                        {% if request.user == image.user or request.user.is_superuser %}
                             <div class="edit">
                                 <a href="{% url 'image_edit_revision' r.pk %}">
                                     <i class="icon-pencil"></i>
                                 </a>
                             </div>
-                        {% endifequal %}
+
+                            <div class="delete">
+                                <a data-toggle="modal" class="danger" href="#delete-revision-modal-{{ r.pk }}">
+                                    <i class="icon-trash"></i>
+                                </a>
+                            </div>
+                        {% endif %}
 
                         <div class="image">
                             {% astrobin_image r.image 'thumb' revision=r.label tooltip=False %}
@@ -61,14 +84,17 @@
             {% for r in revisions_with_description %}
                 <div class="revision-description">
                     <h3>{{r.label}}</h3>
-                    <p>
-                        {{r.description|strip_html|safe}}
-                        {% ifequal request.user image.user %}
-                            - <a href="{% url 'image_edit_revision' r.pk %}">
-                                <i class="icon-pencil"></i>
-                            </a>
-                        {% endifequal %}
-                    </p>
+                    {% if r.description %}
+                        <p>
+                            <strong>{% trans "Description" %}:</strong> {{r.description|strip_html|safe}}
+                            {% if request.user == image.user or request.user.is_superuser %}
+                                <a href="{% url 'image_edit_revision' r.pk %}">
+                                    {% private_abbr %}
+                                    {% trans "Edit" %}
+                                </a>
+                            {% endif %}
+                        </p>
+                    {% endif %}
                 </div>
             {% endfor %}
         {% endif %}

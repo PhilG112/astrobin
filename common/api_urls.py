@@ -1,13 +1,10 @@
-# Django
-from django.conf.urls import patterns, url
-# Third party apps
+from django.conf.urls import url
 from rest_framework.urlpatterns import format_suffix_patterns
 
-# This app
-from .views import *
+from common.views import ContentTypeList, ContentTypeDetail, UserList, UserDetail, UserProfileList, UserProfileDetail, \
+    CurrentUserProfileDetail, SubscriptionList, SubscriptionDetail, UserSubscriptionList, UserSubscriptionDetail
 
-urlpatterns = patterns(
-    '',
+urlpatterns = (
     url(r'^contenttypes/$', ContentTypeList.as_view(), name='contenttype-list'),
     url(r'^contenttypes/(?P<pk>\d+)/$', ContentTypeDetail.as_view(), name='contenttype-detail'),
 
@@ -28,4 +25,3 @@ urlpatterns = patterns(
 
 # Format suffixes
 urlpatterns = format_suffix_patterns(urlpatterns, allowed=['json', 'api'])
-

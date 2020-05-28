@@ -1,43 +1,31 @@
-# Django
 from braces.views import JSONResponseMixin
 from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import redirect
-from django.views.generic.base import View
-from django.views.generic.list import ListView
-
-# Third party
+from django.views.generic.base import View, RedirectView
 from persistent_messages.models import Message
 
-# AstroBin
 from astrobin.models import UserProfile
-
-# This app
 from astrobin_apps_notifications.utils import clear_notifications_template_cache, push_notification
+from common.services import AppRedirectionService
 
 
 class TestNotificationView(View):
     def post(request, *args, **kwargs):
         push_notification(
-            [UserProfile.objects.get(user__username = kwargs.pop('username')).user],
+            [UserProfile.objects.get(user__username=kwargs.pop('username')).user],
             'test_notification',
             {})
         return HttpResponse("test_notification sent")
 
 
-class NotificationListView(ListView):
-    model = Message
-    template_name = "astrobin_apps_notifications/all.html"
-    context_object_name = "notification_list"
-
-    def get_queryset(self):
-        return Message.objects\
-            .filter(user = self.request.user)\
-            .order_by('read', '-created')
+class NotificationListView(RedirectView):
+    def get_redirect_url(self, *args, **kwargs):
+        return AppRedirectionService.redirect(self.request, '/notifications')
 
 
 class NotificationMarkAllAsReadView(View):
     def post(self, request, *args, **kwargs):
-        Message.objects.filter(user = request.user).update(read = True)
+        Message.objects.filter(user=request.user).update(read=True)
         clear_notifications_template_cache(request.user.username)
         return redirect(request.POST.get('next', '/'))
 

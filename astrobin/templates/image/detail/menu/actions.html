@@ -1,5 +1,7 @@
-{% load common_tags %}
 {% load i18n %}
+{% load common_tags %}
+{% load astrobin_apps_premium_tags %}
+
 
 {% if request.user == image.user or request.user.is_superuser %}
     {% if READONLY_MODE %}
@@ -18,25 +20,44 @@
         </a>
         <ul class="dropdown-menu">
             <li>
+                <a class="upload-uncompressed-source"
+                   {% if image.user|can_upload_uncompressed_source %}
+                       href="#upload-uncompressed-source-modal"
+                   {% else %}
+                       href="#feature-restricted-modal"
+                   {% endif  %}
+                   data-toggle="modal">
+                    <i class="icon-upload"></i>
+                    {% trans "Upload uncompressed source (XISF/FITS/PSD/TIFF)" %}
+                </a>
+            </li>
+
+            <li>
                 <a class="upload-revision" href="#upload-revision-modal" data-toggle="modal">
                     <i class="icon-upload-alt"></i>
                     {% trans "Upload new revision" %}
                 </a>
             </li>
 
-            {% if not is_final %}
-                <li>
-                    {% if is_revision %}
+            <li>
+                {% if is_revision %}
+                    {% if revision_image.is_final %}
+                        <a href="#" class="disabled">
+                    {% else %}
                         <a href="{% url 'image_edit_revision_make_final' revision_image.id %}">
+                    {% endif %}
+                {% else%}
+                    {% if image.is_final or image.revisions.count == 0 %}
+                        <a href="#" class="disabled">
                     {% else %}
                         <a href="{% url 'image_edit_make_final' image.get_id %}">
                     {% endif %}
+                {% endif %}
 
-                        <i class="icon-ok"></i>
-                        {% trans "Mark this revision as final" %}
-                    </a>
-                </li>
-            {% endif %} <!-- not is_final -->
+                    <i class="icon-ok"></i>
+                    {% trans "Mark this revision as final" %}
+                </a>
+            </li>
 
             <li class="divider"></li>
 
@@ -65,21 +86,6 @@
             </li>
 
             <li class="divider"></li>
-            <li>
-                <a data-toggle="modal" href="#send-to-datapool-modal">
-                    <i class="icon-plus-sign"></i>
-                    {% trans "Send to public data pool" %}
-                </a>
-            </li>
-
-            <li>
-                <a data-toggle="modal" href="#send-to-sharedfolder-modal">
-                    <i class="icon-plus-sign"></i>
-                    {% trans "Send to private shared folder" %}
-                </a>
-            </li>
-
-            <li class="divider"></li>
 
             <li>
                 <a data-toggle="modal" class="danger" href="#delete-modal">
@@ -91,7 +97,7 @@
                     {% endif %}
                 </a>
 
-                {% if not is_revision and revisions %}
+                {% if revisions %}
                 <a data-toggle="modal" class="danger" href="#delete-original-image-modal">
                     <i class="icon-remove"></i>
                     {% trans "Delete original image" %}
@@ -99,11 +105,11 @@
                 {% endif %} <!-- revisions -->
 
                 {% if is_revision %}
-                <a data-toggle="modal" class="danger" href="#delete-revision-modal">
+                <a data-toggle="modal" class="danger" href="#delete-revision-modal-{{ revision_image.pk }}">
                     <i class="icon-remove"></i>
-                    {% trans "Delete this revision only" %}
+                    {% trans "Delete this revision only" %} ({{ revision_label }})
                 </a>
-                {% endif %} <!--  is_revision -->
+                {% endif %} <!-- is_revision -->
             </li>
 
             {% if request.user == image.user or request.user.is_superuser %}

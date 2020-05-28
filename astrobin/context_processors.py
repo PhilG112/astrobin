@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from astrobin.enums import SubjectType
 from astrobin.fields import COUNTRIES
 from astrobin.models import Image
 from astrobin.utils import get_client_country_code
@@ -51,7 +52,6 @@ def user_scores(request):
 
 
 def common_variables(request):
-    from rawdata.utils import rawdata_user_has_valid_subscription
     from django_user_agents.utils import get_and_set_user_agent
     from django_bouncy.models import Bounce, Complaint
 
@@ -75,23 +75,47 @@ def common_variables(request):
         # 'random_gear_item': Gear.objects.filter(moderator_fixed = None).order_by('?')[:1].get(),
         'is_producer': request.user.groups.filter(name='Producers'),
         'is_retailer': request.user.groups.filter(name='Retailers'),
-        'rawdata_has_subscription': rawdata_user_has_valid_subscription(request.user),
         'IMAGES_URL': settings.IMAGES_URL,
         'MEDIA_URL': settings.MEDIA_URL,
         'ADS_ENABLED': settings.ADS_ENABLED,
         'DONATIONS_ENABLED': settings.DONATIONS_ENABLED,
+
         'PREMIUM_ENABLED': settings.PREMIUM_ENABLED,
+
         'PREMIUM_MAX_IMAGES_FREE': settings.PREMIUM_MAX_IMAGES_FREE,
         'PREMIUM_MAX_IMAGES_LITE': settings.PREMIUM_MAX_IMAGES_LITE,
+
+        'PREMIUM_MAX_IMAGES_FREE_2020': settings.PREMIUM_MAX_IMAGES_FREE_2020,
+        'PREMIUM_MAX_IMAGES_LITE_2020': settings.PREMIUM_MAX_IMAGES_LITE_2020,
+        'PREMIUM_MAX_IMAGES_PREMIUM_2020': settings.PREMIUM_MAX_IMAGES_PREMIUM_2020,
+
+        'PREMIUM_MAX_IMAGE_SIZE_FREE_2020': settings.PREMIUM_MAX_IMAGE_SIZE_FREE_2020,
+        'PREMIUM_MAX_IMAGE_SIZE_LITE_2020': settings.PREMIUM_MAX_IMAGE_SIZE_LITE_2020,
+        'PREMIUM_MAX_IMAGE_SIZE_PREMIUM_2020': settings.PREMIUM_MAX_IMAGE_SIZE_PREMIUM_2020,
+
+        'PREMIUM_MAX_REVISIONS_FREE_2020': settings.PREMIUM_MAX_REVISIONS_FREE_2020,
+        'PREMIUM_MAX_REVISIONS_LITE_2020': settings.PREMIUM_MAX_REVISIONS_LITE_2020,
+        'PREMIUM_MAX_REVISIONS_PREMIUM_2020': settings.PREMIUM_MAX_REVISIONS_PREMIUM_2020,
+
+        'PREMIUM_PRICE_FREE_2020': settings.PREMIUM_PRICE_FREE_2020,
+        'PREMIUM_PRICE_LITE_2020': settings.PREMIUM_PRICE_LITE_2020,
+        'PREMIUM_PRICE_PREMIUM_2020': settings.PREMIUM_PRICE_PREMIUM_2020,
+        'PREMIUM_PRICE_ULTIMATE_2020': settings.PREMIUM_PRICE_ULTIMATE_2020,
+
         'PAYPAL_TEST': settings.PAYPAL_TEST,
         'IOTD_SHOW_CHOOSING_JUDGE': settings.IOTD_SHOW_CHOOSING_JUDGE,
-        'SOLVING_ENABLED': settings.ENABLE_SOLVING,
+        'ENABLE_SOLVING': settings.ENABLE_SOLVING,
         'GOOGLE_ANALYTICS_ID': settings.GOOGLE_ANALYTICS_ID,
+        'GOOGLE_ADS_ID': settings.GOOGLE_ADS_ID,
         'READONLY_MODE': settings.READONLY_MODE,
         'HAS_BOUNCED_EMAILS': bounced,
         'HAS_COMPLAINT': complained,
         'COUNTRIES': COUNTRIES,
         'COOKIELAW_ACCEPTED': request.COOKIES.get('cookielaw_accepted', False),
+
+        'enums': {
+            'SubjectType': SubjectType,
+        },
     }
 
     if request.user.is_authenticated() and request.user.userprofile.is_image_moderator():

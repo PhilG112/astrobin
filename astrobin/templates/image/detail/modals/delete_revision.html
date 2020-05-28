@@ -1,0 +1,13 @@
+{% if is_revision and revision_image %}
+    {% with pk_of_revision_to_be_deleted=revision_image.pk %}
+        {% include "image/detail/modals/_delete_single_revision.html" %}
+    {% endwith %}
+{% endif %}
+
+{% for single_revision in image.revisions.all %}
+    {% if not is_revision or single_revision.pk != revision_image.pk %}
+        {% with pk_of_revision_to_be_deleted=single_revision.pk %}
+            {% include "image/detail/modals/_delete_single_revision.html" %}
+        {% endwith %}
+    {% endif %}
+{% endfor %}

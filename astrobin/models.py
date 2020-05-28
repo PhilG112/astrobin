@@ -4,13 +4,19 @@ import hmac
 import logging
 import operator
 import os
-# Python
 import random
 import string
 import unicodedata
 import uuid
-from datetime import date
 from datetime import datetime
+
+from image_cropping import ImageRatioField
+
+from astrobin.enums import SubjectType, SolarSystemSubject
+from astrobin.fields import CountryField, get_country_name
+from astrobin.services import CloudflareService
+from common.utils import upload_path
+from common.validators import FileValidator
 
 try:
     from hashlib import sha1
@@ -19,7 +25,6 @@ except ImportError:
 
     sha1 = sha.sha
 
-# Django
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
@@ -27,7 +32,7 @@ from django.contrib.staticfiles.templatetags.staticfiles import static
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxLengthValidator
-from django.db import IntegrityError
+from django.db import IntegrityError, models
 from django.db.models import Q
 from django.db.models.signals import post_save
 from django.template.defaultfilters import slugify
@@ -40,8 +45,6 @@ try:
 except ImportError:
     # Django >= 1.10
     from django.contrib.contenttypes.fields import GenericRelation
-
-# Third party
 
 from celery.result import AsyncResult
 from model_utils.managers import InheritanceManager
@@ -56,14 +59,11 @@ except:
     # Django >= 1.10
     from timezones.zones import PRETTY_TIMEZONE_CHOICES
 
-# AstroBin apps
 from astrobin_apps_images.managers import ImagesManager, PublicImagesManager, WipImagesManager
 from astrobin_apps_notifications.utils import push_notification
 from astrobin_apps_platesolving.models import Solution
 from nested_comments.models import NestedComment
 
-# This app
-from .fields import *
 from .utils import user_is_paying
 
 log = logging.getLogger('apps')
@@ -83,8 +83,22 @@ class HasSolutionMixin(object):
 
 
 def image_upload_path(instance, filename):
-    ext = filename.split('.')[-1]
-    return "images/%d/%d/%s.%s" % (instance.user.id, date.today().year, uuid.uuid4(), ext)
+    user = instance.user if instance._meta.model_name == u'image' else instance.image.user
+    return upload_path('images', user.pk, filename)
+
+
+def uncompressed_source_upload_path(instance, filename):
+    user = instance.user if instance._meta.model_name == u'image' else instance.image.user
+    return upload_path('uncompressed', user.pk, filename)
+
+
+def data_download_upload_path(instance, filename):
+    # type: (DataDownloadRequest, str) -> str
+    return "data-download/{}/{}".format(
+        instance.user.pk,
+        'astrobin_data_{}_{}.zip'.format(
+            instance.user.username,
+            instance.created.strftime('%Y-%m-%d-%H-%M')))
 
 
 def image_hash():
@@ -173,18 +187,18 @@ SUBJECT_TYPES = {
 }
 
 SOLAR_SYSTEM_SUBJECT_CHOICES = (
-    (0, _("Sun")),
-    (1, _("Earth's Moon")),
-    (2, _("Mercury")),
-    (3, _("Venus")),
-    (4, _("Mars")),
-    (5, _("Jupiter")),
-    (6, _("Saturn")),
-    (7, _("Uranus")),
-    (8, _("Neptune")),
-    (9, _("Minor planet")),
-    (10, _("Comet")),
-    (11, _("Other")),
+    (SolarSystemSubject.SUN, _("Sun")),
+    (SolarSystemSubject.MOON, _("Earth's Moon")),
+    (SolarSystemSubject.MERCURY, _("Mercury")),
+    (SolarSystemSubject.VENUS, _("Venus")),
+    (SolarSystemSubject.MARS, _("Mars")),
+    (SolarSystemSubject.JUPITER, _("Jupiter")),
+    (SolarSystemSubject.SATURN, _("Saturn")),
+    (SolarSystemSubject.URANUS, _("Uranus")),
+    (SolarSystemSubject.NEPTUNE, _("Neptune")),
+    (SolarSystemSubject.MINOR_PLANET, _("Minor planet")),
+    (SolarSystemSubject.COMET, _("Comet")),
+    (SolarSystemSubject.OTHER, _("Other")),
 )
 
 WATERMARK_SIZE_CHOICES = (
@@ -446,31 +460,32 @@ class GearHardMergeRedirect(models.Model):
 
 class Telescope(Gear):
     TELESCOPE_TYPES = (
-        (0, _("Refractor: achromatic")),
-        (1, _("Refractor: semi-apochromatic")),
-        (2, _("Refractor: apochromatic")),
-        (3, _("Refractor: non-achromatic Galilean")),
-        (4, _("Refractor: non-achromatic Keplerian")),
-        (5, _("Refractor: superachromat")),
+        ("REFR ACHRO", _("Refractor: achromatic")),
+        ("REFR SEMI-APO", _("Refractor: semi-apochromatic")),
+        ("REFR APO", _("Refractor: apochromatic")),
+        ("REFR NON-ACHRO GALILEAN", _("Refractor: non-achromatic Galilean")),
+        ("REFR NON-ACHRO KEPLERIAN", _("Refractor: non-achromatic Keplerian")),
+        ("REFR SUPERACHRO", _("Refractor: superachromat")),
 
-        (6, _("Reflector: Dall-Kirkham")),
-        (7, _("Reflector: Nasmyth")),
-        (8, _("Reflector: Ritchey Chretien")),
-        (9, _("Reflector: Gregorian")),
-        (10, _("Reflector: Herschellian")),
-        (11, _("Reflector: Newtonian")),
+        ("REFL DALL-KIRKHAM", _("Reflector: Dall-Kirkham")),
+        ("REFL NASMYTH", _("Reflector: Nasmyth")),
+        ("REFL RITCHEY CHRETIEN", _("Reflector: Ritchey Chretien")),
+        ("REFL GREGORIAN", _("Reflector: Gregorian")),
+        ("REFL HERSCHELLIAN", _("Reflector: Herschellian")),
+        ("REFL NEWTONIAN", _("Reflector: Newtonian")),
 
-        (12, _("Catadioptric: Argunov-Cassegrain")),
-        (13, _("Catadioptric: Klevtsov-Cassegrain")),
-        (14, _("Catadioptric: Lurie-Houghton")),
-        (15, _("Catadioptric: Maksutov")),
-        (16, _("Catadioptric: Maksutov-Cassegrain")),
-        (17, _("Catadioptric: modified Dall-Kirkham")),
-        (18, _("Catadioptric: Schmidt camera")),
-        (19, _("Catadioptric: Schmidt-Cassegrain")),
-        (20, _("Catadioptric: ACF Schmidt-Cassegrain")),
-        (21, _("Camera lens")),
-        (22, _("Binoculars")),
+        ("CATA ARGUNOV-CASSEGRAIN", _("Catadioptric: Argunov-Cassegrain")),
+        ("CATA KLEVTSOV-CASSEGRAIN", _("Catadioptric: Klevtsov-Cassegrain")),
+        ("CATA LURIE-HOUGHTON", _("Catadioptric: Lurie-Houghton")),
+        ("CATA MAKSUTOV", _("Catadioptric: Maksutov")),
+        ("CATA MAKSUTOV-CASSEGRAIN", _("Catadioptric: Maksutov-Cassegrain")),
+        ("CATA MOD DALL-KIRKHAM", _("Catadioptric: modified Dall-Kirkham")),
+        ("CATA SCHMIDT CAMERA", _("Catadioptric: Schmidt camera")),
+        ("CATA SCHMIDT-CASSEGRAIN", _("Catadioptric: Schmidt-Cassegrain")),
+        ("CATA ACF SCHMIDT-CASSEGRAIN", _("Catadioptric: ACF Schmidt-Cassegrain")),
+        ("CATA ROWE-ACKERMANN SCHMIDT", _("Catadioptric: Rowe-Atkinson Schmidt astrograph")),
+        ("CAMERA LENS", _("Camera lens")),
+        ("BINOCULARS", _("Binoculars")),
     )
 
     aperture = models.DecimalField(
@@ -491,10 +506,11 @@ class Telescope(Gear):
         decimal_places=2,
     )
 
-    type = models.IntegerField(
+    type = models.CharField(
         verbose_name=_("Type"),
         null=True,
         blank=True,
+        max_length=64,
         choices=TELESCOPE_TYPES,
     )
 
@@ -535,12 +551,12 @@ class Mount(Gear):
 
 class Camera(Gear):
     CAMERA_TYPES = (
-        (0, _("CCD")),
-        (1, _("DSLR")),
-        (2, _("Guider/Planetary")),
-        (3, _("Film")),
-        (4, _("Compact")),
-        (5, _("Video camera")),
+        ("CCD", _("CCD")),
+        ("DSLR", _("DSLR")),
+        ("GUIDER/PLANETARY", _("Guider/Planetary")),
+        ("FILM", _("Film")),
+        ("COMPACT", _("Compact")),
+        ("VIDEO", _("Video camera")),
     )
 
     pixel_size = models.DecimalField(
@@ -570,10 +586,11 @@ class Camera(Gear):
         decimal_places=2,
     )
 
-    type = models.IntegerField(
+    type = models.CharField(
         verbose_name=_("Type"),
         null=True,
         blank=True,
+        max_length=64,
         choices=CAMERA_TYPES,
     )
 
@@ -592,14 +609,15 @@ class FocalReducer(Gear):
 
 class Software(Gear):
     SOFTWARE_TYPES = (
-        (0, _("Open source or freeware")),
-        (1, _("Paid")),
+        ("OPEN_SOURCE_OR_FREEWARE", _("Open source or freeware")),
+        ("PAID", _("Paid")),
     )
 
-    type = models.IntegerField(
+    type = models.CharField(
         verbose_name=_("Type"),
         null=True,
         blank=True,
+        max_length=64,
         choices=SOFTWARE_TYPES,
     )
 
@@ -609,30 +627,32 @@ class Software(Gear):
 
 class Filter(Gear):
     FILTER_TYPES = (
-        (0, _("Clear or color")),
+        ("CLEAR_OR_COLOR", _("Clear or color")),
 
-        (1, _("Broadband: H-Alpha")),
-        (2, _("Broadband: H-Beta")),
-        (3, _("Broadband: S-II")),
-        (4, _("Broadband: O-III")),
-        (5, _("Broadband: N-II")),
+        ("BROAD HA", _("Broadband: H-Alpha")),
+        ("BROAD HB", _("Broadband: H-Beta")),
+        ("BROAD SII", _("Broadband: S-II")),
+        ("BROAD OIII", _("Broadband: O-III")),
+        ("BROAD NII", _("Broadband: N-II")),
 
-        (6, _("Narrowband: H-Alpha")),
-        (7, _("Narrowband: H-Beta")),
-        (8, _("Narrowband: S-II")),
-        (9, _("Narrowband: O-III")),
-        (10, _("Narrowband: N-II")),
+        ("NARROW HA", _("Narrowband: H-Alpha")),
+        ("NARROW HB", _("Narrowband: H-Beta")),
+        ("NARROW SII", _("Narrowband: S-II")),
+        ("NARROW OIII", _("Narrowband: O-III")),
+        ("NARROW NII", _("Narrowband: N-II")),
 
-        (11, _("Light pollution suppression")),
-        (12, _("Planetary")),
-        (13, _("Other")),
-        (14, _("UHC: Ultra High Contrast")),
+        ("LP", _("Light pollution suppression")),
+        ("PLANETARY", _("Planetary")),
+        ("UHC", _("UHC: Ultra High Contrast")),
+
+        ("OTHER", _("Other")),
     )
 
-    type = models.IntegerField(
+    type = models.CharField(
         verbose_name=_("Type"),
         null=True,
         blank=True,
+        max_length=64,
         choices=FILTER_TYPES,
     )
 
@@ -700,14 +720,14 @@ class Image(HasSolutionMixin, SafeDeleteModel):
     )
 
     SUBJECT_TYPE_CHOICES = (
-        (0, "---------"),
-        (100, _("Deep sky object")),
-        (200, _("Solar system body or event")),
-        (300, _("Extremely wide field")),
-        (400, _("Star trails")),
-        (450, _("Northern lights")),
-        (500, _("Gear")),
-        (600, _("Other")),
+        (None, "---------"),
+        (SubjectType.DEEP_SKY, _("Deep sky object or field")),
+        (SubjectType.SOLAR_SYSTEM, _("Solar system body or event")),
+        (SubjectType.WIDE_FIELD, _("Extremely wide field")),
+        (SubjectType.STAR_TRAILS, _("Star trails")),
+        (SubjectType.NORTHERN_LIGHTS, _("Northern lights")),
+        (SubjectType.GEAR, _("Gear")),
+        (SubjectType.OTHER, _("Other")),
     )
 
     DATA_SOURCE_TYPES = (
@@ -747,6 +767,7 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         (None, "---------"),
         ("AC", "AstroCamp"),
         ("AHK", "Astro Hostel Krasnodar"),
+        ("AOWA", "Astro Observatories Western Australia"),
         ("CS", "ChileScope"),
         ("DSP", "Dark Sky Portal"),
         ("DSC", "DeepSkyChile"),
@@ -761,6 +782,7 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         ("MARIO", "Marathon Remote Imaging Observatory (MaRIO)"),
         ("NMS", "New Mexico Skies"),
         ("OES", "Observatorio El Sauce"),
+        ("PSA", "PixelSkies"),
         ("RLD", "Riverland Dingo Observatory"),
         ("SS", "Sahara Sky"),
         ("SPVO", "San Pedro Valley Observatory"),
@@ -791,6 +813,9 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         'accessories': Accessory,
     }
 
+    corrupted = models.BooleanField(
+        default=False
+    )
 
     hash = models.CharField(
         max_length=6,
@@ -812,10 +837,11 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         default='TRADITIONAL'
     )
 
-    subject_type = models.IntegerField(
+    subject_type = models.CharField(
         verbose_name=_("Subject type"),
         choices=SUBJECT_TYPE_CHOICES,
-        default=0,
+        max_length=16,
+        null=False,
     )
 
     data_source = models.CharField(
@@ -836,12 +862,13 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         blank=True,
     )
 
-    solar_system_main_subject = models.IntegerField(
+    solar_system_main_subject = models.CharField(
         verbose_name=_("Main solar system subject"),
         help_text=_(
             "If the main subject of your image is a body in the solar system, please select which (or which type) it is."),
         null=True,
         blank=True,
+        max_length=16,
         choices=SOLAR_SYSTEM_SUBJECT_CHOICES,
     )
 
@@ -877,6 +904,32 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         width_field='w',
         max_length=256,
         null=True,
+    )
+
+    uncompressed_source_file = models.FileField(
+        upload_to=uncompressed_source_upload_path,
+        validators=(FileValidator(allowed_extensions=(settings.ALLOWED_UNCOMPRESSED_SOURCE_EXTENSIONS)),),
+        verbose_name=_("Uncompressed source (max 200 MB)"),
+        help_text=_(
+            "You can store the final processed image that came out of your favorite image editor (e.g. PixInsight, "
+            "Adobe Photoshop, etc) here on AstroBin, for archival purposes. This file is stored privately and only you "
+            "will have access to it."),
+        max_length=256,
+        null=True,
+    )
+
+    square_cropping = ImageRatioField(
+        'image_file',
+        '130x130',
+        verbose_name=_("Gallery thumbnail"),
+        help_text=_("Select an area of the image to be used as thumbnail in your gallery.")
+    )
+
+    sharpen_thumbnails = models.BooleanField(
+        default=False,
+        verbose_name=_('Sharpen thumbnails'),
+        help_text=_('If selected, AstroBin will use a resizing algorithm that slightly sharpens the image\'s '
+                    'thumbnails. This setting applies to all revisions.'),
     )
 
     uploaded = models.DateTimeField(editable=False, auto_now_add=True)
@@ -959,6 +1012,8 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         default=True,
     )
 
+    nested_comments = GenericRelation(NestedComment, related_query_name='image')
+
     mouse_hover_image = models.CharField(
         null=True,
         blank=True,
@@ -987,6 +1042,12 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         null=True,
         related_name='images_moderated',
         on_delete=models.SET_NULL,
+    )
+
+    skip_notifications = models.BooleanField(
+        default=False,
+        verbose_name=_("Skip notifications"),
+        help_text=_("Do not notify your followers about this image upload.")
     )
 
     class Meta:
@@ -1128,7 +1189,7 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         return field
 
     def get_final_revision_label(self):
-        # Avoid hitting the db by potentially exitting early
+        # Avoid hitting the db by potentially exiting early
         if self.is_final:
             return '0'
 
@@ -1155,9 +1216,34 @@ class Image(HasSolutionMixin, SafeDeleteModel):
 
         log.debug("Image %d: requested raw thumbnail: %s / %s" % (self.id, alias, revision_label))
 
-        options = settings.THUMBNAIL_ALIASES[''][alias].copy()
+        options = dict(settings.THUMBNAIL_ALIASES[''][alias].copy(), **thumbnail_settings)
 
-        field = self.get_thumbnail_field(revision_label);
+        if alias in ("gallery", "gallery_inverted", "collection", "thumb"):
+            if revision_label == '0':
+                if self.square_cropping:
+                    options['box'] = self.square_cropping
+                    options['crop'] = True
+            elif revision_label == 'final':
+                try:
+                    revision = ImageRevision.objects.get(image=self, label=self.get_final_revision_label())
+                    if revision.square_cropping:
+                        options['box'] = revision.square_cropping
+                        options['crop'] = True
+                except ImageRevision.DoesNotExist:
+                    if self.square_cropping:
+                        options['box'] = self.square_cropping
+                        options['crop'] = True
+            else:
+                revision = ImageRevision.objects.get(image=self, label=revision_label)
+                if revision.square_cropping:
+                    options['box'] = revision.square_cropping
+                    options['crop'] = True
+
+        field = self.get_thumbnail_field(revision_label)
+        if not field.name:
+            # This can only happen in tests.
+            return None
+
         if not field.name.startswith('images/'):
             field.name = 'images/' + field.name
 
@@ -1203,7 +1289,7 @@ class Image(HasSolutionMixin, SafeDeleteModel):
                 except (urllib2.HTTPError, urllib2.URLError):
                     remote_file = None
 
-                # If that didn't work, we'll get the file rebularly via django-storages.
+                # If that didn't work, we'll get the file regularly via django-storages.
                 if remote_file is None:
                     log.debug("Image %d: getting via URL didn't work. Falling back to django-storages..." % self.id)
                     try:
@@ -1245,10 +1331,11 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         app_model = "{0}.{1}".format(
             self._meta.app_label,
             self._meta.object_name).lower()
-        cache_key = 'easy_thumb_alias_cache_%s.%s_%s' % (
+        cache_key = 'easy_thumb_alias_cache_%s.%s_%s_%s' % (
             app_model,
             unicodedata.normalize('NFKD', unicode(field)).encode('ascii', 'ignore'),
-            alias)
+            alias,
+            self.square_cropping)
 
         from hashlib import sha256
         return sha256(cache_key).hexdigest()
@@ -1258,16 +1345,15 @@ class Image(HasSolutionMixin, SafeDeleteModel):
             insecure = 'insecure' in thumbnail_settings and thumbnail_settings['insecure'] == True
             if insecure and url.startswith('https'):
                 return url.replace('https', 'http', 1)
-            if not insecure and url.startswith('http://'):
-                return url.replace('http', 'https', 1)
 
             return url
 
         from astrobin_apps_images.models import ThumbnailGroup
 
         options = thumbnail_settings.copy()
+
         revision_label = options.get('revision_label', 'final')
-        field = self.get_thumbnail_field(revision_label);
+        field = self.get_thumbnail_field(revision_label)
         if not field.name.startswith('images/'):
             field.name = 'images/' + field.name
 
@@ -1275,7 +1361,7 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         if alias in ('revision', 'runnerup'):
             alias = 'thumb'
 
-        if revision_label in (None, 'final'):
+        if revision_label in (None, 'None', 'final'):
             revision_label = self.get_final_revision_label()
             options['revision_label'] = revision_label
 
@@ -1286,7 +1372,7 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         # If this is an animated gif, let's just return the full size URL
         # because right now we can't thumbnail gifs preserving animation
         if 'animated' in options and options['animated'] == True:
-            if alias in ('regular', 'hd', 'real'):
+            if alias in ('regular', 'regular_sharpened', 'hd', 'hd_sharpened', 'real'):
                 url = settings.IMAGES_URL + field.name
                 cache.set(cache_key + '_animated', url, 60 * 60 * 24 * 365)
                 return normalize_url_security(url, thumbnail_settings)
@@ -1317,9 +1403,12 @@ class Image(HasSolutionMixin, SafeDeleteModel):
 
         if "sync" in thumbnail_settings and thumbnail_settings["sync"] is True:
             retrieve_thumbnail.apply(args=(self.pk, alias, options))
-            thumbnails = self.thumbnails.get(revision=revision_label)
-            url = getattr(thumbnails, alias)
-            return url
+            try:
+                thumbnails = self.thumbnails.get(revision=revision_label)
+                url = getattr(thumbnails, alias)
+                return url
+            except ThumbnailGroup.DoesNotExist:
+                return None
 
         # If we got down here, we don't have an url yet, so we start an asynchronous task and return a placeholder.
         task_id_cache_key = '%s.retrieve' % cache_key
@@ -1327,12 +1416,23 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         if task_id is None:
             result = retrieve_thumbnail.apply_async(args=(self.pk, alias, options), task_id=cache_key)
             cache.set(task_id_cache_key, result.task_id)
+
+            try:
+                # Try again in case of eagerness.
+                thumbnails = self.thumbnails.get(revision=revision_label)
+
+                if thumbnails:
+                    url = getattr(thumbnails, alias)
+                    if url:
+                        return url
+            except ThumbnailGroup.DoesNotExist:
+                pass
         else:
             AsyncResult(task_id_cache_key)
 
         return static('astrobin/images/placeholder-gallery.jpg')
 
-    def thumbnail_invalidate_real(self, field, revision_label, delete_remote=True):
+    def thumbnail_invalidate_real(self, field, revision_label, delete_remote=False):
         from easy_thumbnails.files import get_thumbnailer
 
         from astrobin.s3utils import OverwritingFileSystemStorage
@@ -1395,6 +1495,18 @@ class Image(HasSolutionMixin, SafeDeleteModel):
                 except OSError:
                     log.debug("Image %d: locally cached file not found." % self.id)
 
+                # Then we purge the Cloudflare cache
+                try:
+                    thumbnail_group = self.thumbnails.get(revision=revision_label)  # type: ThumbnailGroup
+                    all_urls = [x for x in thumbnail_group.get_all_urls() if x]
+
+                    cloudflare_service = CloudflareService()
+
+                    for url in all_urls:
+                        cloudflare_service.purge_resource(url)
+                except ThumbnailGroup.DoesNotExist:
+                    log.debug("Image %d: thumbnail group missing." % self.id)
+
         # Then we remove the database entries
         try:
             thumbnailgroup = self.thumbnails.get(revision=revision_label).delete()
@@ -1402,7 +1514,7 @@ class Image(HasSolutionMixin, SafeDeleteModel):
         except ThumbnailGroup.DoesNotExist:
             log.debug("Image %d: thumbnail group missing." % self.id)
 
-    def thumbnail_invalidate(self, delete_remote=True):
+    def thumbnail_invalidate(self, delete_remote=False):
         return self.thumbnail_invalidate_real(self.image_file, '0', delete_remote)
 
     def get_data_source(self):
@@ -1427,8 +1539,20 @@ class Image(HasSolutionMixin, SafeDeleteModel):
             if self.remote_source == source[0]:
                 return source[1]
 
+    def get_keyvaluetags(self):
+        tags = self.keyvaluetags.all()
+
+        if tags.count() == 0:
+            return ""
+
+        return '\r\n'.join([str(x) for x in self.keyvaluetags.all()])
+
     def is_platesolvable(self):
-        return self.subject_type in (100, 300)
+        return \
+            (self.subject_type == SubjectType.DEEP_SKY) or \
+            (self.subject_type == SubjectType.WIDE_FIELD) or \
+            (self.subject_type == SubjectType.SOLAR_SYSTEM and \
+             self.solar_system_main_subject == SolarSystemSubject.COMET)
 
     @staticmethod
     def by_gear(gear, gear_type=None):
@@ -1471,12 +1595,23 @@ class ImageRevision(HasSolutionMixin, SafeDeleteModel):
         related_name='revisions'
     )
 
+    corrupted = models.BooleanField(
+        default=False
+    )
+
     image_file = models.ImageField(
         upload_to=image_upload_path,
         height_field='h',
         width_field='w',
         null=True,
         max_length=256,
+    )
+
+    square_cropping = ImageRatioField(
+        'image_file',
+        '130x130',
+        verbose_name=_("Gallery thumbnail"),
+        help_text=_("Select an area of the image to be used as thumbnail in your gallery.")
     )
 
     description = models.TextField(
@@ -1540,7 +1675,7 @@ class ImageRevision(HasSolutionMixin, SafeDeleteModel):
     def thumbnail(self, alias, thumbnail_settings={}):
         return self.image.thumbnail(alias, dict(thumbnail_settings.items() + {'revision_label': self.label}.items()))
 
-    def thumbnail_invalidate(self, delete_remote=True):
+    def thumbnail_invalidate(self, delete_remote=False):
         return self.image.thumbnail_invalidate_real(self.image_file, self.label, delete_remote)
 
 
@@ -1589,13 +1724,20 @@ class Collection(models.Model):
         on_delete=models.SET_NULL,
     )
 
+    order_by_tag = models.CharField(
+        null=True,
+        blank=True,
+        max_length=255,
+        verbose_name=_("Order by image tag")
+    )
+
     class Meta:
         app_label = 'astrobin'
         unique_together = ('user', 'name')
         ordering = ['name']
 
     def __unincode__(self):
-        return "%s, a collectio by %s" % (self.name, self.user.username)
+        return "%s, a collection by %s" % (self.name, self.user.username)
 
 
 class Acquisition(models.Model):
@@ -1675,7 +1817,7 @@ class DeepSky_Acquisition(Acquisition):
     gain = models.DecimalField(
         _("Gain"),
         null=True, blank=True,
-        max_digits=5, decimal_places=2)
+        max_digits=7, decimal_places=2)
 
     sensor_cooling = models.IntegerField(
         _("Sensor cooling"),
@@ -1795,14 +1937,14 @@ class SolarSystem_Acquisition(Acquisition):
 
     seeing = models.IntegerField(
         verbose_name=_("Seeing"),
-        help_text=_("Your estimation of the seeing, on a scale from 1 to 5."),
+        help_text=_("Your estimation of the seeing, on a scale from 1 to 5. Larger is better."),
         null=True,
         blank=True,
     )
 
     transparency = models.IntegerField(
         verbose_name=_("Transparency"),
-        help_text=_("Your estimation of the transparency, on a scale from 1 to 10."),
+        help_text=_("Your estimation of the transparency, on a scale from 1 to 10. Larger is better."),
         null=True,
         blank=True
     )
@@ -1831,12 +1973,12 @@ class Request(models.Model):
     def __unicode__(self):
         return '%s %s: %s' % (_('Request from'), self.from_user.username, self.message)
 
+    def get_absolute_url(self):
+        return '/requests/detail/' + self.id + '/'
+
     class Meta:
         app_label = 'astrobin'
         ordering = ['-created']
-
-    def get_absolute_url():
-        return '/requests/detail/' + self.id + '/'
 
 
 class ImageRequest(Request):
@@ -2094,6 +2236,14 @@ class UserProfile(SafeDeleteModel):
         default=False,
         verbose_name=_(u'I accept to receive occasional marketing and commercial material via email'),
         help_text=_(u'These emails may contain offers, commercial news, and promotions from AstroBin or its partners.')
+    )
+
+    allow_astronomy_ads = models.BooleanField(
+        default=True,
+        verbose_name=_(u'Allow astronomy ads from our partners'),
+        help_text=_(u'It would mean a lot if you chose to allow astronomy relevant, non intrusive ads on this website. '
+                    u'AstroBin is a small business run by a single person, and this kind of support would be amazing. '
+                    u'Thank you in advance!')
     )
 
     inactive_account_reminder_sent = models.DateTimeField(
@@ -2689,3 +2839,47 @@ class BroadcastEmail(models.Model):
 
     def __unicode__(self):
         return self.subject
+
+
+class DataDownloadRequest(models.Model):
+    STATUS_CHOICES = (
+        ("PENDING", _("Pending")),
+        ("PROCESSING", _("Processing")),
+        ("READY", _("Ready")),
+        ("ERROR", _("Error")),
+        ("EXPIRED", _("Expired")),
+    )
+
+    user = models.ForeignKey(User, editable=False)
+
+    created = models.DateTimeField(
+        null=False,
+        blank=False,
+        auto_now_add=True,
+        editable=False,
+    )
+
+    zip_file = models.FileField(
+        upload_to=data_download_upload_path,
+        max_length=256,
+        null=True,
+    )
+
+    file_size = models.BigIntegerField(
+        null=True,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        default="PENDING",
+        choices=STATUS_CHOICES
+    )
+
+    def status_label(self):
+        for i in self.STATUS_CHOICES:
+            if self.status == i[0]:
+                return i[1]
+
+    class Meta:
+        app_label = 'astrobin'
+        ordering = ('-created',)

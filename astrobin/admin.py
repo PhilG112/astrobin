@@ -1,10 +1,16 @@
 import difflib
-from datetime import timedelta
+from datetime import timedelta, datetime, date
 
 from django.contrib import admin, messages
+from django.contrib.auth.models import User
+from django.db.models import Q
 from django.http import HttpResponseRedirect
+from django.utils import timezone
 
-from astrobin.models import *
+from astrobin.models import Gear, GearUserInfo, GearAssistedMerge, GearMakeAutoRename, GearHardMergeRedirect, Telescope, \
+    Mount, Camera, FocalReducer, Software, Filter, Accessory, DeepSky_Acquisition, SolarSystem_Acquisition, Image, \
+    ImageRevision, Request, ImageRequest, UserProfile, Location, AppApiKeyRequest, App, ImageOfTheDay, \
+    ImageOfTheDayCandidate, Collection, GlobalStat, BroadcastEmail, CommercialGear, RetailedGear
 from astrobin.tasks import send_broadcast_email
 from astrobin.utils import inactive_accounts
 from astrobin_apps_premium.utils import premium_get_valid_usersubscription
@@ -55,11 +61,12 @@ class UserProfileAdmin(admin.ModelAdmin):
 
     search_fields = ('user__username',)
 
+
 class GearAdmin(admin.ModelAdmin):
     list_display = ('id', 'make', 'name', 'master', 'updated', 'moderator_fixed')
     list_editable = ('make', 'name',)
     search_fields = ('id', 'make', 'name',)
-    actions = ['assisted_merge', 'soft_merge',]
+    actions = ['assisted_merge', 'soft_merge', ]
 
     def assisted_merge(modeladmin, request, queryset):
         GearAssistedMerge.objects.all().delete()
@@ -67,24 +74,25 @@ class GearAdmin(admin.ModelAdmin):
         if queryset.count() > 1:
             return
 
-        orphans = queryset.filter(master = None)
+        orphans = queryset.filter(master=None)
         for orphan in orphans:
-            matches = difflib.get_close_matches(orphan.name, [x.name for x in queryset], cutoff = 0.6)
+            matches = difflib.get_close_matches(orphan.name, [x.name for x in queryset], cutoff=0.6)
             for match in matches:
-                slaves = Gear.objects.filter(name = match).exclude(pk = orphan.pk)
+                slaves = Gear.objects.filter(name=match).exclude(pk=orphan.pk)
                 for slave in slaves:
                     # The following line needs some explaining:
                     # With the first Q(), I exclude mutual master/slave
                     # relationship (like a -> b and b -> a).
                     # With the second Q(), I exclude dependencies that generate
                     # a tree deeper than 2 level (a -> b -> c).
-                    if not GearAssistedMerge.objects.filter(Q(slave = orphan) | Q(master = slave)):
+                    if not GearAssistedMerge.objects.filter(Q(slave=orphan) | Q(master=slave)):
                         s = difflib.SequenceMatcher(None, orphan.name, match)
-                        merge, created = GearAssistedMerge.objects.get_or_create(master = orphan, slave = slave)
+                        merge, created = GearAssistedMerge.objects.get_or_create(master=orphan, slave=slave)
                         merge.cutoff = s.quick_ratio()
                         merge.save()
 
         return HttpResponseRedirect('/admin/astrobin/gearassistedmerge/')
+
     assisted_merge.short_description = 'Assisted hard merge'
 
     def soft_merge(modeladmin, request, queryset):
@@ -98,7 +106,7 @@ class GearAdmin(admin.ModelAdmin):
 
         for slave in slaves:
             # These are all the items that are slave to this slave.
-            slaves_slaves = Gear.objects.filter(master = slave)
+            slaves_slaves = Gear.objects.filter(master=slave)
 
             if slave.master:
                 slave.master.master = master
@@ -110,16 +118,16 @@ class GearAdmin(admin.ModelAdmin):
 
             slave.master = master
             slave.save()
+
     soft_merge.short_description = 'Soft merge'
 
 
 class GearAssistedMergeAdmin(admin.ModelAdmin):
-    list_display = ('id', 'master',  'slave', 'cutoff')
+    list_display = ('id', 'master', 'slave', 'cutoff')
     list_per_page = 10
     ordering = ('-cutoff', 'master')
     search_fields = ('master',)
-    actions = ['hard_merge', 'invert', 'delete_gear_items',]
-
+    actions = ['hard_merge', 'invert', 'delete_gear_items', ]
 
     def invert(modeladmin, request, queryset):
         for merge in queryset:
@@ -131,7 +139,6 @@ class GearAssistedMergeAdmin(admin.ModelAdmin):
 
     invert.short_description = 'Invert'
 
-
     def delete_gear_items(modeladmin, request, queryset):
         for merge in queryset:
             try:
@@ -142,7 +149,6 @@ class GearAssistedMergeAdmin(admin.ModelAdmin):
             merge.delete()
 
     delete_gear_items.short_description = "Delete gear items"
-
 
     def hard_merge(modeladmin, request, queryset):
         from utils import unique_items
@@ -158,6 +164,7 @@ class GearAssistedMergeAdmin(admin.ModelAdmin):
         queryset.delete()
 
         return HttpResponseRedirect('/admin/astrobin/gear/')
+
     hard_merge.short_description = 'Hard merge'
 
 
@@ -246,8 +253,8 @@ class BroadcastEmailAdmin(admin.ModelAdmin):
         self.submit_email(request, obj, recipients)
 
     def submit_superuser_email(self, request, obj):
-        recipients = UserProfile.objects\
-            .filter(user__is_superuser = True)\
+        recipients = UserProfile.objects \
+            .filter(user__is_superuser=True) \
             .values_list('user__email', flat=True)
         self.submit_email(request, obj, recipients)
 
@@ -276,9 +283,9 @@ class BroadcastEmailAdmin(admin.ModelAdmin):
             .exclude(premium_offer_expiration__lt=datetime.now()) \
             .filter(receive_marketing_and_commercial_material=True) \
             .filter(
-                Q(premium_offer_sent = None) |
-                Q(premium_offer_sent__lt=datetime.now() - timedelta(days=30))
-            )
+            Q(premium_offer_sent=None) |
+            Q(premium_offer_sent__lt=datetime.now() - timedelta(days=30))
+        )
 
         profiles = [x for x in profiles if premium_get_valid_usersubscription(x.user) is None]
 
@@ -290,6 +297,23 @@ class BroadcastEmailAdmin(admin.ModelAdmin):
         recipients = inactive_accounts()
         self.submit_email(request, obj, recipients.values_list('user__email', flat=True))
         recipients.update(inactive_account_reminder_sent=timezone.now())
+
+    def submit_february_2020_data_loss_premium_upgrade(self, request, obj):
+        recipients = User.objects \
+            .filter(
+            usersubscription__subscription__name="AstroBin Premium",
+            usersubscription__expires=date(2021, 2, 20)) \
+            .values_list('email', flat=True)
+        self.submit_email(request, obj, recipients)
+
+    def submit_february_2020_data_loss_ultimate_upgrade(self, request, obj):
+        recipients = User.objects.filter(
+            Q(usersubscription__subscription__name__in=("AstroBin Premium", 'AstroBin Premium (autorenew)')),
+            Q(usersubscription__active=True),
+            Q(usersubscription__expires__gte=date(2020, 2, 15)) & ~Q(usersubscription__expires=date(2021, 2, 20))) \
+            .exclude(usersubscription__subscription__name="AstroBin Ultimate 2020+") \
+            .values_list('email', flat=True)
+        self.submit_email(request, obj, recipients)
 
     submit_mass_email.short_description = 'Submit mass email (select one only) - DO NOT ABUSE'
     submit_mass_email.allow_tags = True
@@ -312,6 +336,12 @@ class BroadcastEmailAdmin(admin.ModelAdmin):
     submit_inactive_email_reminder.short_description = 'Submit inactive account reminder'
     submit_inactive_email_reminder.allow_tags = True
 
+    submit_february_2020_data_loss_premium_upgrade.short_description = 'Submit February 2020 data loss Premium upgrade'
+    submit_february_2020_data_loss_premium_upgrade.allow_tags = True
+
+    submit_february_2020_data_loss_ultimate_upgrade.short_description = 'Submit February 2020 data loss Ultimate upgrade'
+    submit_february_2020_data_loss_ultimate_upgrade.allow_tags = True
+
     actions = [
         'submit_mass_email',
         'submit_superuser_email',
@@ -320,6 +350,8 @@ class BroadcastEmailAdmin(admin.ModelAdmin):
         'submit_marketing_and_commercial_material',
         'submit_premium_offer_discount',
         'submit_inactive_email_reminder',
+        'submit_february_2020_data_loss_premium_upgrade',
+        'submit_february_2020_data_loss_ultimate_upgrade',
     ]
 
     list_display = ("subject", "created")

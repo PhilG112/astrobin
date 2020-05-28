@@ -11,19 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     build-essential \
+    python-dev \
     pkg-config \
     libxslt1-dev \
     libxml2-dev \
-    cmake \
-    qt4-qmake \
-    libqt4-dev \
     gettext \
     python-pip \
-    python-pyside libpyside-dev \
-    libqjson-dev libraw-dev \
-    shiboken libshiboken-dev \
     libjpeg62 libjpeg62-dev \
     libfreetype6 libfreetype6-dev \
+    liblcms2-dev \
     zlib1g-dev \
     ruby ruby-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -45,22 +41,13 @@ RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - \
         yarn \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-
-# System hacks
-RUN ln -s /usr/lib/x86_64-linux-gnu/libraw.so /usr/lib/x86_64-linux-gnu/libraw.so.10
-
-# Install abc
-COPY submodules/abc /code/submodules/abc
-WORKDIR /code/submodules/abc/cfitsio
-RUN sed -i -e 's/\r$//' configure && sh configure && make -j4
-WORKDIR /code/submodules/abc
-RUN qmake . && make -j4 && make install
-
 # Install pip dependencies
+RUN mkdir /code
 COPY requirements.txt /code
 WORKDIR /code
-RUN python -m pip install --upgrade setuptools && \
-    python -m pip install --upgrade pip && \
+RUN python -m pip install --upgrade pip && \
+    apt-get purge -y python-pip && \
+    python -m pip install "setuptools<45" && \
     pip install --no-deps -r requirements.txt --src /src
 
 # Install global node dependencies
@@ -69,6 +56,10 @@ RUN yarn global add \
 
 # Install compass
 RUN gem install compass
+COPY astrobin/static/astrobin/scss/*.scss astrobin/static/astrobin/scss/
+RUN mkdir -p astrobin/static/astrobin/css
+RUN sass astrobin/static/astrobin/scss/astrobin.scss astrobin/static/astrobin/css/astrobin.css
+RUN sass astrobin/static/astrobin/scss/astrobin-mobile.scss astrobin/static/astrobin/css/astrobin-mobile.css
 
 # Install logrotate file
 COPY docker/astrobin.logrotate.conf /etc/logrotate.d/astrobin
@@ -76,6 +67,7 @@ RUN chown root:root /etc/logrotate.d/astrobin && chmod 644 /etc/logrotate.d/astr
 
 CMD python manage.py migrate --noinput && gunicorn wsgi:application -w 2 -b :8083
 EXPOSE 8083
+EXPOSE 8084
 COPY . /code
 
 RUN scripts/compilemessages.sh

@@ -25,11 +25,7 @@
             </div>
         {% endif %}
 
-        {% if not form %}
-        <div class="span9">
-        {% else %}
-        <div class="span12">
-        {% endif %}
+        <div class="span{% if not form %}9{% else %}12{% endif %}">
             {% block collections_content %}{% endblock %}
         </div>
     </div> <!-- row -->
@@ -38,10 +34,6 @@
 {% block modals %}
     {% if request.user == user and user|is_donor %}
         {% cancel_donation_modal %}
-    {% endif %}
-
-    {% if ADS_ENABLED and not request.user|is_donor %}
-        {% remove_ads_modal %}
     {% endif %}
 {% endblock %}
 

@@ -1,12 +1,12 @@
-# Django
 from django.conf import settings
-from django.conf.urls import url, include, patterns
+from django.conf.urls import url, include
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
-from django.views.decorators.cache import cache_page
-# Third party
-from django.views.i18n import json_catalog
+from django.contrib.staticfiles.storage import staticfiles_storage
+from django.views.generic import RedirectView
+from django.views.static import serve
+from rest_framework.authtoken.views import obtain_auth_token
 from tastypie.api import Api
 from threaded_messages.views import batch_update as messages_batch_update
 from threaded_messages.views import compose as messages_compose
@@ -16,7 +16,6 @@ from threaded_messages.views import message_ajax_reply as messages_message_ajax_
 from threaded_messages.views import recipient_search as messages_recipient_search
 from threaded_messages.views import view as messages_view
 
-# AstroBin
 from astrobin import lookups
 from astrobin.api import (
     TopPickResource,
@@ -42,6 +41,9 @@ from astrobin.views import (
     image_edit_acquisition_reset,
     image_edit_license,
     image_edit_platesolving_settings,
+    image_restart_platesolving,
+    image_edit_platesolving_advanced_settings,
+    image_restart_advanced_platesolving,
     image_edit_make_final,
     image_edit_revision_make_final,
     image_edit_save_acquisition,
@@ -124,23 +126,13 @@ from astrobin.views import (
     stats_subject_total_images_ajax,
     stats_subject_integration_monthly_ajax,
 
-    affiliates,
-    faq,
-    guidelines,
-    help,
     api_help,
     trending_astrophotographers,
     stats,
-    tos,
 
     set_language
 )
-# AstroBin apps
-from rawdata.views.helppages import (
-    Help1 as RawDataHelp1,
-    Help2 as RawDataHelp2,
-    Help3 as RawDataHelp3,
-)
+from astrobin.views.profile.download_data_view import DownloadDataView
 
 admin.autodiscover()
 
@@ -154,17 +146,20 @@ v1_api.register(ImageOfTheDayResource())
 v1_api.register(CollectionResource())
 v1_api.register(UserProfileResource())
 
-urlpatterns = [
+urlpatterns = []
+
+if settings.DEBUG or settings.TESTING:
+    import debug_toolbar
+
+    urlpatterns += [url(r'^__debug__/', include(debug_toolbar.urls))]
+    INTERNAL_IPS = ["*"]
+
+urlpatterns += [
     ###########################################################################
     ### DJANGO VIEWS                                                        ###
     ###########################################################################
 
     url(r'^admin/', include(admin.site.urls)),
-
-    url(r'^jsi18n/$', cache_page(86400, key_prefix="js18n-%s" % settings.VERSION)(json_catalog), {
-        'domain': 'django',
-        'packages': ['astrobin'] + settings.ASTROBIN_APPS
-    }, name='javascript-catalog'),
 
     ###########################################################################
     ### THIRD PARTY APPS VIEWS                                              ###
@@ -206,6 +201,8 @@ urlpatterns = [
     url(r'^subscriptions/', include('subscription.urls')),
     url(r'^tinymce/', include('tinymce.urls')),
     url(r'^bouncy/', include('django_bouncy.urls')),
+    url(r'^paypal/', include('paypal.standard.ipn.urls')),
+    url(r'^progressbarupload/', include('progressbarupload.urls')),
 
     ###########################################################################
     ### API VIEWS                                                           ###
@@ -215,12 +212,12 @@ urlpatterns = [
     url(r'^api/request-key/$', api_views.AppApiKeyRequestView.as_view(), name='app_api_key_request'),
     url(r'^api/request-key/complete/$', api_views.AppApiKeyRequestCompleteView.as_view(),
         name='app_api_key_request_complete'),
-    url(r'^api/v2/api-auth-token/', 'rest_framework.authtoken.views.obtain_auth_token'),
+    url(r'^api/v2/api-auth-token/', obtain_auth_token),
     url(r'^api/v2/api-auth/', include('rest_framework.urls', namespace='rest_framework')),
     url(r'^api/v2/common/', include('common.api_urls')),
     url(r'^api/v2/nestedcomments/', include('nested_comments.api_urls')),
     url(r'^api/v2/platesolving/', include('astrobin_apps_platesolving.api_urls')),
-    url(r'^api/v2/rawdata/', include('rawdata.api_urls')),
+    url(r'^api/v2/notifications/', include('astrobin_apps_notifications.api.urls')),
 
     ###########################################################################
     ### OWN APPS VIEWS                                                      ###
@@ -230,7 +227,6 @@ urlpatterns = [
     url(r'^notifications/', include('astrobin_apps_notifications.urls')),
     url(r'^platesolving/', include('astrobin_apps_platesolving.urls')),
     url(r'^premium/', include('astrobin_apps_premium.urls')),
-    url(r'^rawdata/', include('rawdata.urls')),
     url(r'^toggleproperties/', include('toggleproperties.urls')),
     url(r'^users_app/', include('astrobin_apps_users.urls')),
     url(r'^groups/', include('astrobin_apps_groups.urls')),
@@ -247,6 +243,9 @@ urlpatterns = [
     ###########################################################################
 
     url(r'^ads.txt$', special_views.AdsTxtView.as_view(), name='ads_txt'),
+    url(r'^favicon.ico$',
+        RedirectView.as_view(url=staticfiles_storage.url('astrobin/favicon.ico'), permanent=False),
+        name='favicon'),
 
     ###########################################################################
     ### SEARCH VIEWS                                                        ###
@@ -277,6 +276,9 @@ urlpatterns = [
         collections_views.UserCollectionsUpdate.as_view(), name='user_collections_update'),
     url(r'^users/(?P<username>[\w.@+-]*)/collections/(?P<collection_pk>\d+)/add-remove-images/$',
         collections_views.UserCollectionsAddRemoveImages.as_view(), name='user_collections_add_remove_images'),
+    url(r'^users/(?P<username>[\w.@+-]*)/collections/(?P<collection_pk>\d+)/quick-edit/key-value-pairs$',
+        collections_views.UserCollectionsQuickEditKeyValueTags.as_view(),
+        name='user_collections_quick_edit_key_value_tags'),
     url(r'^users/(?P<username>[\w.@+-]*)/collections/(?P<collection_pk>\d+)/delete/$',
         collections_views.UserCollectionsDelete.as_view(), name='user_collections_delete'),
     url(r'^users/(?P<username>[\w.@+-]*)/apikeys/$', user_page_api_keys, name='user_page_api_keys'),
@@ -312,6 +314,7 @@ urlpatterns = [
     url(r'^profile/edit/license/$', user_profile_edit_license, name='profile_edit_license'),
     url(r'^profile/edit/locations/$', user_profile_edit_locations, name='profile_edit_locations'),
     url(r'^profile/edit/preferences/$', user_profile_edit_preferences, name='profile_edit_preferences'),
+    url(r'^profile/download-data/$', DownloadDataView.as_view(), name='profile_download_data'),
     url(r'^profile/edit/retailer/$', user_profile_edit_retailer, name='profile_edit_retailer'),
     url(r'^profile/save/basic/$', user_profile_save_basic, name='profile_save_basic'),
     url(r'^profile/save/gear/$', user_profile_save_gear, name='profile_save_gear'),
@@ -434,31 +437,17 @@ urlpatterns = [
     ### PAGES VIEWS                                                         ###
     ###########################################################################
 
-    url(r'^affiliates/$', affiliates, name='affiliates'),
-    url(r'^faq/', faq, name='faq'),
-    url(r'^guidelines/', guidelines, name='guidelines'),
-    url(r'^help/$', help, name='help'),
     url(r'^help/api/$', api_help, name='api'),
-    url(r'^help/rawdata/1/$', RawDataHelp1.as_view(), name='rawdata.help1'),
-    url(r'^help/rawdata/2/$', RawDataHelp2.as_view(), name='rawdata.help2'),
-    url(r'^help/rawdata/3/$', RawDataHelp3.as_view(), name='rawdata.help3'),
     url(r'^trending-astrophotographers/',
         trending_astrophotographers,
         name='trending_astrophotographers'),
     url(r'^stats/', stats, name='stats'),
-    url(r'^tos/', tos, name='tos'),
 
     ###########################################################################
     ### I18N VIEWS                                                          ###
     ###########################################################################
 
     url(r'^language/set/(?P<lang>[\w-]+)/$', set_language, name='set_language'),
-
-    ###########################################################################
-    ### HOME VIEWS                                                          ###
-    ###########################################################################
-
-    url(r'^welcome/', include('astrobin_apps_landing.urls', namespace='landing')),
 
     ###########################################################################
     ### IMAGE EDIT VIEWS                                                    ###
@@ -475,6 +464,12 @@ urlpatterns = [
     url(r'^edit/license/(?P<id>\w+)/$', image_edit_license, name='image_edit_license'),
     url(r'^edit/platesolving/(?P<id>\w+)/(?:(?P<revision_label>\w+)/)?$', image_edit_platesolving_settings,
         name='image_edit_platesolving_settings'),
+    url(r'^edit/platesolving/(?P<id>\w+)/(?:(?P<revision_label>\w+)/)?restart$', image_restart_platesolving,
+        name='image_restart_platesolving'),
+    url(r'^edit/platesolving-advanced/(?P<id>\w+)/(?:(?P<revision_label>\w+)/)?$',
+        image_edit_platesolving_advanced_settings, name='image_edit_platesolving_advanced_settings'),
+    url(r'^edit/platesolving/(?P<id>\w+)/(?:(?P<revision_label>\w+)/)?restart-advanced$',
+        image_restart_advanced_platesolving, name='image_restart_advanced_platesolving'),
     url(r'^edit/makefinal/(?P<id>\w+)/$', image_edit_make_final, name='image_edit_make_final'),
     url(r'^edit/revision/makefinal/(?P<id>\w+)/$', image_edit_revision_make_final,
         name='image_edit_revision_make_final'),
@@ -482,11 +477,14 @@ urlpatterns = [
     url(r'^edit/save/license/$', image_edit_save_license, name='image_edit_save_license'),
     url(r'^edit/save/watermark/$', image_edit_save_watermark, name='image_edit_save_watermark'),
     url(r'^edit/watermark/(?P<id>\w+)/$', image_edit_watermark, name='image_edit_watermark'),
+    url(r'^edit/thumbnails/(?P<id>\w+)/$', image_views.ImageEditThumbnailsView.as_view(), name='image_edit_thumbnails'),
     url(r'^edit/revision/(?P<id>\w+)/$', image_views.ImageEditRevisionView.as_view(), name='image_edit_revision'),
     url(r'^promote/(?P<id>\w+)/$', image_views.ImagePromoteView.as_view(), name='image_promote'),
     url(r'^upload/$', image_upload, name='image_upload'),
     url(r'^upload/process/$', image_upload_process, name='image_upload_process'),
     url(r'^upload/revision/process/$', image_revision_upload_process, name='image_revision_upload_process'),
+    url(r'^upload-uncompressed-source/(?P<id>\w+)/$', image_views.ImageUploadUncompressedSource.as_view(),
+        name='upload_uncompressed_source'),
 
     ###########################################################################
     ### IMAGE VIEWS                                                         ###
@@ -499,22 +497,26 @@ urlpatterns = [
         name='image_rawthumb'),
     url(r'^(?P<id>\w+)/(?:(?P<r>\w+)/)?thumb/(?P<alias>\w+)/$', image_views.ImageThumbView.as_view(),
         name='image_thumb'),
+
+    ###########################################################################
+    ### JSON API VIEWS                                                      ###
+    ###########################################################################
+
+    url(r'^json-api/', include('astrobin_apps_json_api.urls')),
 ]
 
 urlpatterns += [url(r'^silk/', include('silk.urls', namespace='silk'))]
 
-if (settings.DEBUG or settings.TESTING) and not settings.AWS_S3_ENABLED:
+if not settings.AWS_S3_ENABLED:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-    urlpatterns += patterns('', (r'^media/(?P<path>.*)$', 'django.views.static.serve',
-                                 {'document_root': settings.MEDIA_ROOT, 'show_indexes': True}))
+    urlpatterns += [url(r'^media/(?P<path>.*)$', serve, {
+        'document_root': settings.MEDIA_ROOT,
+        'show_indexes': True
+    })]
 
-if (settings.DEBUG or settings.TESTING) and settings.LOCAL_STATIC_STORAGE:
+if settings.LOCAL_STATIC_STORAGE:
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-    urlpatterns += patterns('', (r'^static/(?P<path>.*)$', 'django.views.static.serve',
-                                 {'document_root': settings.STATIC_ROOT, 'show_indexes': True}))
-
-if settings.DEBUG or settings.TESTING:
-    import debug_toolbar
-
-    urlpatterns += [url(r'^__debug__/', include(debug_toolbar.urls))]
-    INTERNAL_IPS = ["*"]
+    urlpatterns += [url(r'^static/(?P<path>.*)$', serve, {
+        'document_root': settings.STATIC_ROOT,
+        'show_indexes': True
+    })]

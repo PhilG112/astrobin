@@ -1,22 +1,20 @@
-# Python
 import re
 from datetime import datetime
 
-# Third party
 from braces.views import (
     JSONResponseMixin,
     LoginRequiredMixin,
 )
-# Django
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.staticfiles.templatetags.staticfiles import static
 from django.core.exceptions import PermissionDenied
 from django.core.files.images import get_image_dimensions
-from django.core.urlresolvers import reverse_lazy
+from django.core.urlresolvers import reverse_lazy, reverse
 from django.db.models import Q
-from django.http import Http404, HttpResponseRedirect
+from django.db.models.query import QuerySet
+from django.http import Http404, HttpResponseRedirect, HttpResponseBadRequest
 from django.shortcuts import redirect
 from django.utils.encoding import iri_to_uri, smart_unicode
 from django.utils.translation import ugettext as _
@@ -27,11 +25,9 @@ from django.views.generic import (
     UpdateView,
 )
 from django.views.generic.detail import SingleObjectMixin
-
 from silk.profiling.profiler import silk_profile
-from toggleproperties.models import ToggleProperty
 
-# AstroBin
+from astrobin.enums import SubjectType
 from astrobin.forms import (
     CopyGearForm,
     ImageDemoteForm,
@@ -42,7 +38,9 @@ from astrobin.forms import (
     ImagePromoteForm,
     ImageRevisionUploadForm,
     PrivateMessageForm,
-)
+    ImageEditThumbnailsForm,
+    ImageEditCorruptedRevisionForm)
+from astrobin.forms.uncompressed_source_upload_form import UncompressedSourceUploadForm
 from astrobin.models import (
     Collection,
     Image, ImageRevision,
@@ -51,23 +49,20 @@ from astrobin.models import (
     UserProfile,
     LANGUAGES,
     LICENSE_CHOICES,
-    SOLAR_SYSTEM_SUBJECT_CHOICES,
 )
 from astrobin.stories import add_story
 from astrobin.templatetags.tags import can_like
-from astrobin.utils import to_user_timezone
-# AstroBin apps
+from astrobin.utils import to_user_timezone, get_image_resolution
 from astrobin_apps_groups.forms import GroupSelectForm
 from astrobin_apps_groups.models import Group
+from astrobin_apps_images.services import ImageService
 from astrobin_apps_iotd.models import Iotd
 from astrobin_apps_notifications.utils import push_notification
 from astrobin_apps_platesolving.models import Solution
+from astrobin_apps_platesolving.services import SolutionService
+from astrobin_apps_premium.templatetags.astrobin_apps_premium_tags import can_see_real_resolution
 from nested_comments.models import NestedComment
-from rawdata.forms import (
-    PublicDataPool_SelectExistingForm,
-    PrivateSharedFolder_SelectExistingForm,
-)
-from rawdata.models import PrivateSharedFolder
+from toggleproperties.models import ToggleProperty
 
 
 class ImageSingleObjectMixin(SingleObjectMixin):
@@ -126,16 +121,16 @@ class ImageFlagThumbsView(
 
     def post(self, request, *args, **kwargs):
         image = self.get_object()
-        image.thumbnail_invalidate(False)
+        image.thumbnail_invalidate()
         for r in image.revisions.all():
-            r.thumbnail_invalidate(False)
+            r.thumbnail_invalidate()
         messages.success(self.request, _("Thanks for reporting the problem. All thumbnails will be generated again."))
         return super(ImageFlagThumbsView, self).post(self.request, args, kwargs)
 
 
 class ImageThumbView(JSONResponseMixin, ImageDetailViewBase):
     model = Image
-    queryset = Image.objects_including_wip.all()
+    queryset = Image.all_objects.all()
     pk_url_kwarg = 'id'
 
     def get(self, request, *args, **kwargs):
@@ -148,13 +143,19 @@ class ImageThumbView(JSONResponseMixin, ImageDetailViewBase):
 
         force = request.GET.get('force')
         if force is not None:
-            image.thumbnail_invalidate(False)
+            image.thumbnail_invalidate()
 
-        url = image.thumbnail(alias, {
+        opts = {
             'revision_label': r,
             'animated': 'animated' in self.request.GET,
             'insecure': 'insecure' in self.request.GET,
-        })
+        }
+
+        sync = request.GET.get('sync')
+        if sync is not None:
+            opts['sync'] = True
+
+        url = image.thumbnail(alias, opts)
 
         return self.render_json_response({
             'id': image.pk,
@@ -181,7 +182,7 @@ class ImageRawThumbView(ImageDetailViewBase):
 
         force = request.GET.get('force')
         if force is not None:
-            image.thumbnail_invalidate(False)
+            image.thumbnail_invalidate()
 
         sync = request.GET.get('sync')
         if sync is not None:
@@ -220,7 +221,23 @@ class ImageDetailView(ImageDetailViewBase):
                     not request.user.userprofile.is_image_moderator():
                 raise Http404
 
-        revision_label = kwargs['r']
+        revision_label = kwargs.get('r')
+        if image.corrupted and (revision_label == '0' or (revision_label in [None, 'final'] and image.is_final)):
+            if request.user == image.user:
+                return redirect(reverse('image_edit_basic', args=(image.get_id(),)) + '?corrupted')
+            else:
+                raise Http404
+
+        if revision_label != '0':
+            try:
+                revision = image.revisions.get(label=revision_label)
+                if revision.corrupted:
+                    if request.user == image.user:
+                        return redirect(reverse('image_edit_revision', args=(revision.pk,)) + '?corrupted')
+                    else:
+                        raise Http404
+            except ImageRevision.DoesNotExist:
+                pass
 
         if revision_label is None:
             # No revision specified, let's see if we need to redirect to the
@@ -321,6 +338,11 @@ class ImageDetailView(ImageDetailViewBase):
         ssa = None
         image_type = None
         deep_sky_data = {}
+
+        if is_revision:
+            w, h = get_image_resolution(revision_image)
+        else:
+            w, h = get_image_resolution(image)
 
         try:
             ssa = SolarSystem_Acquisition.objects.get(image=image)
@@ -447,25 +469,6 @@ class ImageDetailView(ImageDetailViewBase):
         elif ssa:
             image_type = 'solar_system'
 
-        # Image resolution, aka size in pixels
-        try:
-            if is_revision:
-                w, h = revision_image.w, revision_image.h
-                if not (w and h):
-                    w, h = get_image_dimensions(revision_image.image_file)
-            else:
-                w, h = image.w, image.h
-                if not (w and h):
-                    w, h = get_image_dimensions(image.image_file)
-        except TypeError:
-            # This might happen in unit tests
-            w, h = 0, 0
-
-        # Data that's common to both DS and SS images
-        basic_data = (
-            (_('Resolution'), '%dx%d' % (w, h) if (w and h) else None),
-        )
-
         profile = None
         if self.request.user.is_authenticated():
             profile = self.request.user.userprofile
@@ -482,29 +485,22 @@ class ImageDetailView(ImageDetailViewBase):
                 to_user_timezone(image.published, profile) \
                     if profile else image.published
 
-        alias = 'regular'
+        alias = 'regular' if not image.sharpen_thumbnails else 'regular_sharpened'
         mod = self.request.GET.get('mod')
         if mod == 'inverted':
             alias = 'regular_inverted'
 
-        subjects = image.solution.objects_in_field.split(
-            ',') if image.solution and image.solution.objects_in_field else ''
+        subjects = []
         skyplot_zoom1 = None
 
-        if is_revision:
-            if revision_image.solution:
-                if revision_image.solution.objects_in_field:
-                    subjects = revision_image.solution.objects_in_field.split(',')
-                if revision_image.solution.skyplot_zoom1:
-                    skyplot_zoom1 = revision_image.solution.skyplot_zoom1
-        else:
-            if image.solution:
-                if image.solution.objects_in_field:
-                    subjects = image.solution.objects_in_field.split(',')
-                if image.solution.skyplot_zoom1:
-                    skyplot_zoom1 = image.solution.skyplot_zoom1
+        if image.solution:
+            subjects = SolutionService(image.solution).get_objects_in_field()
+            skyplot_zoom1 = image.solution.skyplot_zoom1
 
-        subjects_limit = 5
+        if is_revision and revision_image.solution:
+            subjects = SolutionService(revision_image.solution).get_objects_in_field()
+            if revision_image.solution.skyplot_zoom1:
+                skyplot_zoom1 = revision_image.solution.skyplot_zoom1
 
         licenses = (
             (0, 'cc/c.png', LICENSE_CHOICES[0][1]),
@@ -553,10 +549,14 @@ class ImageDetailView(ImageDetailViewBase):
             if nav_ctx_extra is None:
                 nav_ctx_extra = self.request.session.get('nav_ctx_extra')
 
-            # Always only lookup public images!
+            # Always only lookup public, non corrupted images!
             if nav_ctx == 'user':
-                image_next = Image.objects.filter(user=image.user, pk__gt=image.pk).order_by('pk')[0:1]
-                image_prev = Image.objects.filter(user=image.user, pk__lt=image.pk).order_by('-pk')[0:1]
+                image_next = Image.objects \
+                                 .exclude(corrupted=True) \
+                                 .filter(user=image.user, pk__gt=image.pk).order_by('pk')[0:1]
+                image_prev = Image.objects \
+                                 .exclude(corrupted=True) \
+                                 .filter(user=image.user, pk__lt=image.pk).order_by('-pk')[0:1]
             elif nav_ctx == 'collection':
                 try:
                     try:
@@ -565,10 +565,33 @@ class ImageDetailView(ImageDetailViewBase):
                         # Maybe this image is in a single collection
                         collection = image.collections.all()[0]
 
-                    image_next = Image.objects.filter(user=image.user, collections=collection,
-                                                      pk__gt=image.pk).order_by('pk')[0:1]
-                    image_prev = Image.objects.filter(user=image.user, collections=collection,
-                                                      pk__lt=image.pk).order_by('-pk')[0:1]
+                    if collection.order_by_tag:
+                        collection_images = Image.objects \
+                            .exclude(corrupted=True) \
+                            .filter(user=image.user, collections=collection, keyvaluetags__key=collection.order_by_tag) \
+                            .order_by('keyvaluetags__value')
+
+                        current_index = 0
+                        for iter_image in collection_images.all():
+                            if iter_image.pk == image.pk:
+                                break
+                            current_index += 1
+
+                        image_next = collection_images.all()[current_index + 1] \
+                            if current_index < collection_images.count() - 1 \
+                            else None
+                        image_prev = collection_images.all()[current_index - 1] \
+                            if current_index > 0 \
+                            else None
+                    else:
+                        image_next = Image.objects \
+                                         .exclude(corrupted=True) \
+                                         .filter(user=image.user, collections=collection,
+                                                 pk__gt=image.pk).order_by('pk')[0:1]
+                        image_prev = Image.objects \
+                                         .exclude(corrupted=True) \
+                                         .filter(user=image.user, collections=collection,
+                                                 pk__lt=image.pk).order_by('-pk')[0:1]
                 except Collection.DoesNotExist:
                     # image_prev and image_next will remain None
                     pass
@@ -576,21 +599,29 @@ class ImageDetailView(ImageDetailViewBase):
                 try:
                     group = image.part_of_group_set.get(pk=nav_ctx_extra)
                     if group.public:
-                        image_next = Image.objects.filter(part_of_group_set=group, pk__gt=image.pk).order_by('pk')[0:1]
-                        image_prev = Image.objects.filter(part_of_group_set=group, pk__lt=image.pk).order_by('-pk')[0:1]
+                        image_next = Image.objects \
+                                         .exclude(corrupted=True) \
+                                         .filter(part_of_group_set=group, pk__gt=image.pk).order_by('pk')[0:1]
+                        image_prev = Image.objects \
+                                         .exclude(corrupted=True) \
+                                         .filter(part_of_group_set=group, pk__lt=image.pk).order_by('-pk')[0:1]
                 except Group.DoesNotExist:
                     # image_prev and image_next will remain None
                     pass
             elif nav_ctx == 'all':
-                image_next = Image.objects.filter(pk__gt=image.pk).order_by('pk')[0:1]
-                image_prev = Image.objects.filter(pk__lt=image.pk).order_by('-pk')[0:1]
+                image_next = Image.objects.exclude(corrupted=True).filter(pk__gt=image.pk).order_by('pk')[0:1]
+                image_prev = Image.objects.exclude(corrupted=True).filter(pk__lt=image.pk).order_by('-pk')[0:1]
             elif nav_ctx == 'iotd':
                 try:
                     iotd = Iotd.objects.get(image=image)
-                    iotd_next = Iotd.objects.filter(date__gt=iotd.date, date__lte=datetime.now().date()).order_by(
-                        'date')[0:1]
-                    iotd_prev = Iotd.objects.filter(date__lt=iotd.date, date__lte=datetime.now().date()).order_by(
-                        '-date')[0:1]
+                    iotd_next = Iotd.objects \
+                                    .exclude(image__corrupted=True) \
+                                    .filter(date__gt=iotd.date, date__lte=datetime.now().date()) \
+                                    .order_by('date')[0:1]
+                    iotd_prev = Iotd.objects \
+                                    .exclude(image__corrupted=True) \
+                                    .filter(date__lt=iotd.date, date__lte=datetime.now().date()) \
+                                    .order_by('-date')[0:1]
 
                     if iotd_next:
                         image_next = [iotd_next[0].image]
@@ -599,16 +630,16 @@ class ImageDetailView(ImageDetailViewBase):
                 except Iotd.DoesNotExist:
                     pass
             elif nav_ctx == 'picks':
-                picks = Image.objects.exclude(iotdvote=None).filter(iotd=None)
+                picks = Image.objects.exclude(iotdvote=None, corrupted=True).filter(iotd=None)
                 image_next = picks.filter(pk__gt=image.pk).order_by('pk')[0:1]
                 image_prev = picks.filter(pk__lt=image.pk).order_by('-pk')[0:1]
         except Image.DoesNotExist:
             image_next = None
             image_prev = None
 
-        if image_next:
+        if image_next and isinstance(image_next, QuerySet):
             image_next = image_next[0]
-        if image_prev:
+        if image_prev and isinstance(image_prev, QuerySet):
             image_prev = image_prev[0]
 
         #################
@@ -626,12 +657,12 @@ class ImageDetailView(ImageDetailViewBase):
 
             'alias': alias,
             'mod': mod,
-            'revisions': ImageRevision.objects.select_related('image__user__userprofile').filter(image=image),
-            'revisions_with_description':
-                ImageRevision.objects \
-                    .select_related('image__user__userprofile') \
-                    .filter(image=image) \
-                    .exclude(Q(description=None) | Q(description='')),
+            'revisions': ImageService(image) \
+                .get_revisions(include_corrupted=self.request.user == image.user) \
+                .select_related('image__user__userprofile'),
+            'revisions_with_description': ImageService(image) \
+                .get_revisions_with_description(include_corrupted=self.request.user == image.user) \
+                .select_related('image__user__userprofile'),
             'is_revision': is_revision,
             'revision_image': revision_image,
             'revision_label': r,
@@ -639,7 +670,10 @@ class ImageDetailView(ImageDetailViewBase):
             'instance_to_platesolve': instance_to_platesolve,
             'show_solution': instance_to_platesolve.mouse_hover_image == "SOLUTION"
                              and instance_to_platesolve.solution
-                             and instance_to_platesolve.solution.status == Solver.SUCCESS,
+                             and instance_to_platesolve.solution.status >= Solver.SUCCESS,
+            'show_advanced_solution': instance_to_platesolve.mouse_hover_image == "SOLUTION"
+                                      and instance_to_platesolve.solution
+                                      and instance_to_platesolve.solution.status == Solver.ADVANCED_SUCCESS,
             'skyplot_zoom1': skyplot_zoom1,
 
             'image_ct': ContentType.objects.get_for_model(Image),
@@ -659,42 +693,26 @@ class ImageDetailView(ImageDetailViewBase):
             'gear_list_has_paid_commercial': gear_list_has_paid_commercial,
             'image_type': image_type,
             'ssa': ssa,
-            'basic_data': basic_data,
             'deep_sky_data': deep_sky_data,
-            # TODO: check that solved image is correcly laid on top
             'private_message_form': PrivateMessageForm(),
             'upload_revision_form': ImageRevisionUploadForm(),
+            'upload_uncompressed_source_form': UncompressedSourceUploadForm(instance=image),
             'dates_label': _("Dates"),
             'published_on': published_on,
-            'show_contains': (image.subject_type == 100 and subjects) or (image.subject_type >= 200),
-            'subjects_short': subjects[:subjects_limit],
-            'subjects_reminder': subjects[subjects_limit:],
-            'subjects_all': subjects,
-            'subjects_limit': subjects_limit,
-            'subject_type': [x[1] for x in Image.SUBJECT_TYPE_CHOICES if x[0] == image.subject_type][
-                0] if image.subject_type else 0,
+            'show_contains': (image.subject_type == SubjectType.DEEP_SKY and subjects) or
+                             (image.subject_type != SubjectType.DEEP_SKY),
+            'subjects': subjects,
+            'subject_type': ImageService(image).get_subject_type_label(),
             'license_icon': static('astrobin/icons/%s' % licenses[image.license][1]),
             'license_title': licenses[image.license][2],
+            'resolution': '%dx%d' % (w, h) if (w and h) else None,
             'locations': locations,
-            # Because of a regression introduced at
-            # revision e1dad12babe5, now we have to
-            # implement this ugly hack.
-
-            'solar_system_main_subject_id': image.solar_system_main_subject,
-            'solar_system_main_subject': SOLAR_SYSTEM_SUBJECT_CHOICES[image.solar_system_main_subject][
-                1] if image.solar_system_main_subject is not None else None,
+            'solar_system_main_subject': ImageService(image).get_solar_system_main_subject_label(),
             'content_type': ContentType.objects.get(app_label='astrobin', model='image'),
             'preferred_language': preferred_language,
             'select_group_form': GroupSelectForm(
                 user=self.request.user) if self.request.user.is_authenticated() else None,
             'in_public_groups': Group.objects.filter(Q(public=True, images=image)),
-            'select_datapool_form': PublicDataPool_SelectExistingForm(),
-            'select_sharedfolder_form': PrivateSharedFolder_SelectExistingForm(
-                user=self.request.user) if self.request.user.is_authenticated() else None,
-            'has_sharedfolders': PrivateSharedFolder.objects.filter(
-                Q(creator=self.request.user) |
-                Q(users=self.request.user)).count() > 0 if self.request.user.is_authenticated() else False,
-
             'image_next': image_next,
             'image_prev': image_prev,
             'nav_ctx': nav_ctx,
@@ -723,10 +741,28 @@ class ImageFullView(ImageDetailView):
 
         self.revision_label = kwargs['r']
 
+        if image.corrupted and (
+                self.revision_label == '0' or (self.revision_label in [None, 'final'] and image.is_final)):
+            if request.user == image.user:
+                return redirect(reverse('image_edit_basic', args=(image.get_id(),)) + '?corrupted')
+            else:
+                raise Http404
+
+        if self.revision_label != '0':
+            try:
+                revision = image.revisions.get(label=self.revision_label)
+                if revision.corrupted:
+                    if request.user == image.user:
+                        return redirect(reverse('image_edit_revision', args=(revision.pk,)) + '?corrupted')
+                    else:
+                        raise Http404
+            except ImageRevision.DoesNotExist:
+                pass
+
         if self.revision_label is None:
             # No revision specified, let's see if we need to redirect to the
             # final.
-            if image.is_final == False:
+            if not image.is_final:
                 final = image.revisions.filter(is_final=True)
                 if final.count() > 0:
                     url = reverse_lazy(
@@ -736,7 +772,6 @@ class ImageFullView(ImageDetailView):
                         url += '?ctx=%s' % request.GET.get('ctx')
                     return redirect(url)
 
-        if self.revision_label is None:
             try:
                 self.revision_label = image.revisions.filter(is_final=True)[0].label
             except IndexError:
@@ -744,16 +779,17 @@ class ImageFullView(ImageDetailView):
 
         return super(ImageFullView, self).dispatch(request, *args, **kwargs)
 
-    # TODO: this function needs to be rewritten
     def get_context_data(self, **kwargs):
         context = super(ImageFullView, self).get_context_data(**kwargs)
 
+        image = self.get_object()
+
         mod = self.request.GET.get('mod')
-        real = 'real' in self.request.GET
+        real = 'real' in self.request.GET and can_see_real_resolution(self.request.user, image)
         if real:
             alias = 'real'
         else:
-            alias = 'hd'
+            alias = 'hd' if not image.sharpen_thumbnails else 'hd_sharpened'
 
         if mod in settings.AVAILABLE_IMAGE_MODS:
             alias += "_%s" % mod
@@ -826,6 +862,8 @@ class ImageRevisionDeleteView(LoginRequiredMixin, DeleteView):
         if revision.is_final:
             image.is_final = True
             image.save(keep_deleted=True)
+            revision.is_final = False
+            revision.save(keep_deleted=True)
 
         revision.thumbnail_invalidate()
         messages.success(self.request, _("Revision deleted."))
@@ -842,10 +880,10 @@ class ImageDeleteOriginalView(ImageDeleteView):
 
     def post(self, *args, **kwargs):
         image = self.get_object()
-        revisions = image.revisions.all()
+        revisions = ImageRevision.all_objects.filter(image=image)
 
         if not revisions:
-            return ImageDeleteView.as_view()(self.request, *args, **kwargs)
+            return HttpResponseBadRequest()
 
         final = None
         if image.is_final:
@@ -883,7 +921,7 @@ class ImageDeleteOriginalView(ImageDeleteView):
         self.image = image
         final.delete()
 
-        messages.success(self.request, _("Revision deleted."));
+        messages.success(self.request, _("Original version deleted!"));
         # We do not call super, because that would delete the Image
         return HttpResponseRedirect(self.get_success_url())
 
@@ -952,11 +990,12 @@ class ImagePromoteView(LoginRequiredMixin, ImageUpdateViewBase):
                         "follow",
                         UserProfile.objects.get(user__pk=request.user.pk).user)
                 ]
-                push_notification(followers, 'new_image',
-                                  {
-                                      'originator': request.user.userprofile.get_display_name(),
-                                      'object_url': settings.BASE_URL + image.get_absolute_url()
-                                  })
+
+                thumb = image.thumbnail_raw('gallery', {'sync': True})
+                push_notification(followers, 'new_image', {
+                    'image': image,
+                    'image_thumbnail': thumb.url if thumb else None
+                })
 
                 add_story(image.user, verb='VERB_UPLOADED_IMAGE', action_object=image)
 
@@ -965,7 +1004,7 @@ class ImagePromoteView(LoginRequiredMixin, ImageUpdateViewBase):
         return super(ImagePromoteView, self).post(request, args, kwargs)
 
 
-class   ImageEditBaseView(LoginRequiredMixin, ImageUpdateViewBase):
+class ImageEditBaseView(LoginRequiredMixin, ImageUpdateViewBase):
     model = Image
     pk_url_kwarg = 'id'
     template_name_suffix = ''
@@ -978,6 +1017,9 @@ class   ImageEditBaseView(LoginRequiredMixin, ImageUpdateViewBase):
         return self.object.get_absolute_url()
 
     def dispatch(self, request, *args, **kwargs):
+        if settings.READONLY_MODE:
+            raise PermissionDenied
+
         image = self.get_object()
 
         if request.user.is_authenticated() and request.user != image.user and not request.user.is_superuser:
@@ -1000,11 +1042,40 @@ class ImageEditBasicView(ImageEditBaseView):
     form_class = ImageEditBasicForm
     template_name = 'image/edit/basic.html'
 
+    def form_valid(self, form):
+        self.object.corrupted = False
+        return super(ImageEditBasicView, self).form_valid(form)
+
     def get_success_url(self):
         image = self.get_object()
         if 'submit_gear' in self.request.POST:
             return reverse_lazy('image_edit_gear', kwargs={'id': image.get_id()})
         return image.get_absolute_url()
+
+    def post(self, request, *args, **kwargs):
+        image = self.get_object()  # type: Image
+        previous_url = image.image_file.url
+
+        ret = super(ImageEditBasicView, self).post(request, *args, **kwargs)
+
+        image = self.get_object()  # type: Image
+        new_url = image.image_file.url
+
+        if new_url != previous_url:
+            try:
+                image.w, image.h = get_image_dimensions(image.image_file)
+            except TypeError:
+                pass
+
+            image.square_cropping = ImageService(image).get_default_cropping()
+            image.save(keep_deleted=True)
+
+            image.thumbnail_invalidate()
+
+            if image.solution:
+                image.solution.delete()
+
+        return ret
 
 
 class ImageEditGearView(ImageEditBaseView):
@@ -1027,8 +1098,12 @@ class ImageEditGearView(ImageEditBaseView):
             return reverse_lazy('image_edit_acquisition', kwargs={'id': image.get_id()})
         return image.get_absolute_url()
 
-    def get_form(self, form_class):
+    def get_form(self, form_class=None):
         image = self.get_object()
+
+        if form_class is None:
+            form_class = self.get_form_class()
+
         if self.request.method == 'POST':
             return form_class(
                 user=image.user, instance=image, data=self.request.POST)
@@ -1041,7 +1116,20 @@ class ImageEditRevisionView(LoginRequiredMixin, UpdateView):
     pk_url_kwarg = 'id'
     template_name = 'image/edit/revision.html'
     context_object_name = 'revision'
-    form_class = ImageEditRevisionForm
+
+    def get_form_class(self):
+        return ImageEditCorruptedRevisionForm if self.object.corrupted else ImageEditRevisionForm
+
+    def get_initial(self):
+        revision = self.get_object()  # type: ImageRevision
+
+        square_cropping = revision.square_cropping
+        if square_cropping == '0,0,0,0':
+            square_cropping = ImageService(revision.image).get_default_cropping(revision.label)
+
+        return {
+            'square_cropping': square_cropping
+        }
 
     def get_success_url(self):
         return reverse_lazy('image_detail', args=(self.object.image.get_id(),))
@@ -1059,4 +1147,81 @@ class ImageEditRevisionView(LoginRequiredMixin, UpdateView):
 
     def form_valid(self, form):
         messages.success(self.request, _("Form saved. Thank you!"))
+        self.object.corrupted = False
         return super(ImageEditRevisionView, self).form_valid(form)
+
+    def post(self, request, *args, **kwargs):
+        revision = self.get_object()  # type: ImageRevision
+        previous_url = revision.image_file.url
+        previous_square_cropping = revision.square_cropping
+
+        ret = super(ImageEditRevisionView, self).post(request, *args, **kwargs)
+
+        revision = self.get_object()
+        new_url = revision.image_file.url
+
+        if new_url != previous_url:
+            try:
+                revision.w, revision.h = get_image_dimensions(revision.image_file)
+            except TypeError:
+                pass
+
+            revision.square_cropping = ImageService(revision.image).get_default_cropping(revision.label)
+            revision.save(keep_deleted=True)
+
+            revision.thumbnail_invalidate()
+
+        if previous_square_cropping != revision.square_cropping:
+            revision.thumbnail_invalidate()
+
+        return ret
+
+
+class ImageEditThumbnailsView(ImageEditBaseView):
+    form_class = ImageEditThumbnailsForm
+    template_name = 'image/edit/thumbnails.html'
+
+    def get_initial(self):
+        image = self.get_object()  # type: Image
+
+        square_cropping = image.square_cropping
+        if square_cropping == '0,0,0,0':
+            square_cropping = ImageService(image).get_default_cropping()
+
+        return {
+            'square_cropping': square_cropping
+        }
+
+    def get_success_url(self):
+        image = self.get_object()
+        if 'submit_watermark' in self.request.POST:
+            return reverse_lazy('image_edit_watermark', kwargs={'id': image.get_id()})
+        return image.get_absolute_url()
+
+    def post(self, request, *args, **kwargs):
+        image = self.get_object()  # type: Image
+        image.thumbnail_invalidate()
+
+        return super(ImageEditThumbnailsView, self).post(request, *args, **kwargs)
+
+
+class ImageUploadUncompressedSource(ImageEditBaseView):
+    form_class = UncompressedSourceUploadForm
+
+    def form_valid(self, form):
+        if 'clear' in self.request.POST:
+            self.object.uncompressed_source_file.delete()
+            self.object.uncompressed_source_file = None
+            self.object.save(keep_deleted=True)
+            msg = "File removed. Thank you!"
+        else:
+            msg = "File uploaded. In the future, you can download this file from your technical card down below. " \
+                  "Thank you!"
+
+        self.object = form.save()
+        messages.success(self.request, _(msg))
+        return redirect(self.get_success_url())
+
+    def form_invalid(self, form):
+        messages.error(self.request, form.errors["uncompressed_source_file"])
+        return redirect(self.get_success_url())

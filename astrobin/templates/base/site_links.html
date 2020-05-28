@@ -142,13 +142,6 @@
                     </a>
                 </li>
 
-                <li class="explore-menu-pools">
-                    <a href="{% url 'rawdata.publicdatapool_list' %}">
-                        <i class="icon-book"></i>
-                        {% trans "Public data pools" %}
-                    </a>
-                </li>
-
                 <li class="divider"></li>
 
                 {% if request.user.is_superuser %}
@@ -176,24 +169,17 @@
             </a>
             <ul class="dropdown-menu">
                 <li>
-                    <a href="{% url 'help' %}">
+                    <a href="https://welcome.astrobin.com/about" target="_blank">
                         <i class="icon-info-sign"></i>
-                        {% trans "What is this site?" %}
+                        {% trans "About" %}
                     </a>
                 </li>
                 <li>
-                    <a href="{% url 'faq' %}">
+                    <a href="https://welcome.astrobin.com/faq" target="_blank">
                         <i class="icon-question-sign"></i>
                         {% trans "FAQ" %}
                     </a>
                 </li>
-                <li>
-                    <a href="{% url 'rawdata.help1' %}">
-                        <i class="icon-book"></i>
-                        {% trans "AstroBin Raw Data" %}
-                    </a>
-                </li>
-
 
                 <li class="divider"></li>
 
@@ -204,9 +190,9 @@
                     </a>
                 </li>
                 <li>
-                    <a href="{% url 'affiliates' %}">
+                    <a href="https://welcome.astrobin.com/sponsors-and-partners" target="_blank">
                         <i class="icon-group"></i>
-                        {% trans "Affiliates" %}
+                        {% trans "Sponsors" %}
                     </a>
                 </li>
 

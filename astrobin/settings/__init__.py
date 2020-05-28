@@ -3,7 +3,7 @@ import os
 from split_settings.tools import optional, include
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION = "1.36.1"
+VERSION = "v1.72.4"
 
 include(
     # Begin
@@ -22,6 +22,7 @@ include(
     'components/session.py',
     'components/storage.py',
     'components/templates.py',
+    'components/cloudflare.py',
 
     # Apps settings
     'components/account.py',

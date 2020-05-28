@@ -126,7 +126,7 @@ in that container.
 
 ## Step 7: Login!
 
-AstroBin is running! Visit http://127.0.0.1/ from your host. You can login with
+AstroBin is running! Visit http://127.0.0.1/accounts/login from your host. You can login with
 the following credentials:
 
     astrobin_dev:astrobin_dev
@@ -254,7 +254,7 @@ Before you submit your code for review, you should run tests to ensure that your
 have not broken anything important.  Run the test script by executing:
 
 ```
-docker-compose -f docker/docker-compose.yml exec astrobin ./scripts/test.sh
+docker-compose -f docker/docker-compose.yml -f docker/docker-compose.build.yml run --no-deps --rm astrobin ./scripts/test.sh
 ```
 
 # Postgresql
@@ -281,7 +281,11 @@ the number of CPUs in your server.
 # Note on building the nginx container
 
 ```bash
-export ENV=prod; docker build -t astrobin/nginx-${ENV} --build-arg ENV=${ENV} -f docker/nginx.dockerfile . && docker push astrobin/nginx-${ENV}
+export ENV=prod
+docker build -t astrobin/nginx-${ENV} \
+    --build-arg ENV=${ENV} \
+    -f docker/nginx.${ENV}.dockerfile . \
+    && docker push astrobin/nginx-${ENV}
 ```
 
 # Docker Swarm deployment
